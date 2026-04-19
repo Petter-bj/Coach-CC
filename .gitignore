@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Ekte payloads som spikes henter — bare redacted fixtures skal i git.
+tests/fixtures/**/raw/
+spikes/output/
+
+# Hemmeligheter skal aldri i repo; canonical path er ~/Library/Application Support/Trening/credentials/.env
+.env
+*.token
+*.secret
+credentials/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
