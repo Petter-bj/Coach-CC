@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from src.paths import WITHINGS_CREDS
-from src.sources.base import FatalError, RetryableError, Source
+from src.sources.base import FatalError, RetryableError, Source, upsert_row
 
 TOKEN_URL = "https://wbsapi.withings.net/v2/oauth2"
 MEASURE_URL = "https://wbsapi.withings.net/measure"
@@ -211,19 +211,9 @@ class WithingsSource(Source):
         ins = upd = 0
         for group in groups:
             row = parse_measure_group(group, fallback_tz)
-            cols = list(row.keys())
-            placeholders = ", ".join(["?"] * len(cols))
-            updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c != "grpid")
-            conn.execute(
-                f"""
-                INSERT INTO withings_weight ({', '.join(cols)})
-                VALUES ({placeholders})
-                ON CONFLICT (grpid) DO UPDATE SET {updates}
-                """,
-                [row[c] for c in cols],
-            )
-            # Heuristikk for ins vs upd — prioriterer korrekthet over nøyaktighet
-            ins += 1
+            i, u = upsert_row(conn, "withings_weight", row, ["grpid"])
+            ins += i
+            upd += u
 
         conn.commit()
         return ins, upd

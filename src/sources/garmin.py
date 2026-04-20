@@ -27,7 +27,7 @@ from typing import Any, Iterator
 
 from src.fit_parser import parse_fit_to_samples
 from src.paths import FIT_FILES_DIR, GARMIN_TOKENS
-from src.sources.base import FatalError, RetryableError, Source
+from src.sources.base import FatalError, RetryableError, Source, upsert_row
 
 
 # ===========================================================================
@@ -247,29 +247,6 @@ def parse_garmin_activity(item: dict) -> tuple[dict, dict]:
 # ===========================================================================
 
 
-def _upsert(
-    conn: sqlite3.Connection,
-    table: str,
-    row: dict,
-    conflict_cols: list[str],
-) -> tuple[int, int]:
-    """INSERT med ON CONFLICT DO UPDATE. Returner (inserted, updated)."""
-    cols = list(row.keys())
-    placeholders = ", ".join(["?"] * len(cols))
-    updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c not in conflict_cols)
-    sql = (
-        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
-        f"ON CONFLICT ({', '.join(conflict_cols)}) DO UPDATE SET {updates}"
-    )
-    before = conn.total_changes
-    conn.execute(sql, [row[c] for c in cols])
-    after = conn.total_changes
-    # SQLite teller INSERT OR REPLACE som 1 change uansett; grov heuristikk:
-    if after - before == 1:
-        return 1, 0
-    return 0, 1
-
-
 def _dates_in_range(since_date: str, until: date | None = None) -> Iterator[str]:
     """Yield 'YYYY-MM-DD' for hver dag fra since_date til (og med) until."""
     start = date.fromisoformat(since_date)
@@ -359,7 +336,7 @@ class GarminSource(Source):
             # Skip hvis alle felt utenom local_date er None
             if all(v is None for k, v in row.items() if k != "local_date"):
                 continue
-            i, u = _upsert(conn, "garmin_daily", row, ["local_date"])
+            i, u = upsert_row(conn, "garmin_daily", row, ["local_date"])
             ins += i
             upd += u
         conn.commit()
@@ -372,7 +349,7 @@ class GarminSource(Source):
             row = parse_garmin_sleep(payload) if payload else None
             if not row:
                 continue
-            i, u = _upsert(conn, "garmin_sleep", row, ["local_date"])
+            i, u = upsert_row(conn, "garmin_sleep", row, ["local_date"])
             ins += i
             upd += u
         conn.commit()
@@ -385,7 +362,7 @@ class GarminSource(Source):
             row = parse_garmin_hrv(payload) if payload else None
             if not row:
                 continue
-            i, u = _upsert(conn, "garmin_hrv", row, ["local_date"])
+            i, u = upsert_row(conn, "garmin_hrv", row, ["local_date"])
             ins += i
             upd += u
         conn.commit()
@@ -404,59 +381,29 @@ class GarminSource(Source):
                 continue
             workout_row, details_row = parse_garmin_activity(item)
 
-            # Upsert canonical workouts
-            cur = conn.execute(
-                """
-                INSERT INTO workouts
-                    (external_id, source, started_at_utc, timezone, local_date,
-                     duration_sec, type, distance_m, avg_hr, calories)
-                VALUES (:external_id, :source, :started_at_utc, :timezone,
-                        :local_date, :duration_sec, :type, :distance_m,
-                        :avg_hr, :calories)
-                ON CONFLICT (source, external_id) DO UPDATE SET
-                    started_at_utc = excluded.started_at_utc,
-                    duration_sec = excluded.duration_sec,
-                    distance_m = excluded.distance_m,
-                    avg_hr = excluded.avg_hr,
-                    calories = excluded.calories
-                """,
-                workout_row,
+            # Upsert workouts via helper (gir korrekt ins/upd-telling)
+            i, u = upsert_row(
+                conn, "workouts", workout_row, ["source", "external_id"],
+                update_cols=["started_at_utc", "duration_sec", "distance_m",
+                             "avg_hr", "calories"],
             )
-            # Hent workout_id (lastrowid gjelder kun ved INSERT; gjør eksplisitt lookup)
+            ins += i
+            upd += u
+
+            # Hent workout_id for FK
             wid = conn.execute(
                 "SELECT id FROM workouts WHERE source = 'garmin' AND external_id = ?",
                 (workout_row["external_id"],),
             ).fetchone()["id"]
-
             details_row["workout_id"] = wid
-            conn.execute(
-                """
-                INSERT INTO garmin_activity_details
-                    (workout_id, garmin_activity_id, activity_name,
-                     activity_type_key, activity_type_parent_id,
-                     moving_duration_sec, elevation_gain_m, elevation_loss_m,
-                     avg_speed_m_per_sec, max_speed_m_per_sec, max_hr,
-                     start_latitude, start_longitude, has_polyline,
-                     device_id, raw_json)
-                VALUES (:workout_id, :garmin_activity_id, :activity_name,
-                        :activity_type_key, :activity_type_parent_id,
-                        :moving_duration_sec, :elevation_gain_m, :elevation_loss_m,
-                        :avg_speed_m_per_sec, :max_speed_m_per_sec, :max_hr,
-                        :start_latitude, :start_longitude, :has_polyline,
-                        :device_id, :raw_json)
-                ON CONFLICT (workout_id) DO UPDATE SET
-                    activity_name = excluded.activity_name,
-                    moving_duration_sec = excluded.moving_duration_sec,
-                    elevation_gain_m = excluded.elevation_gain_m,
-                    elevation_loss_m = excluded.elevation_loss_m,
-                    avg_speed_m_per_sec = excluded.avg_speed_m_per_sec,
-                    max_speed_m_per_sec = excluded.max_speed_m_per_sec,
-                    max_hr = excluded.max_hr,
-                    raw_json = excluded.raw_json
-                """,
-                details_row,
+
+            upsert_row(
+                conn, "garmin_activity_details", details_row, ["workout_id"],
+                update_cols=["activity_name", "moving_duration_sec",
+                             "elevation_gain_m", "elevation_loss_m",
+                             "avg_speed_m_per_sec", "max_speed_m_per_sec",
+                             "max_hr", "raw_json"],
             )
-            ins += 1  # forenklet — teller alltid som insert
 
         conn.commit()
         return ins, upd

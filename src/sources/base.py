@@ -117,6 +117,46 @@ def get_stream_state(conn: sqlite3.Connection, source: str, stream: str) -> dict
     return dict(row)
 
 
+def upsert_row(
+    conn: sqlite3.Connection,
+    table: str,
+    row: dict,
+    conflict_cols: list[str],
+    update_cols: list[str] | None = None,
+) -> tuple[int, int]:
+    """Upsert med korrekt ins/upd-telling.
+
+    Sjekker først om raden finnes ved en eksisterer-query, kjører så
+    INSERT ON CONFLICT DO UPDATE. Returnerer (1, 0) for insert eller
+    (0, 1) for update.
+
+    Args:
+        table: navn på tabellen.
+        row: dict med kolonne → verdi.
+        conflict_cols: kolonner som utgjør den unike natural-nøkkelen.
+        update_cols: hvilke kolonner som skal oppdateres ved konflikt.
+            Default: alle kolonner i `row` utenom `conflict_cols`.
+    """
+    where = " AND ".join(f"{c} = ?" for c in conflict_cols)
+    exists = conn.execute(
+        f"SELECT 1 FROM {table} WHERE {where} LIMIT 1",
+        [row[c] for c in conflict_cols],
+    ).fetchone()
+
+    cols = list(row.keys())
+    placeholders = ", ".join(["?"] * len(cols))
+    if update_cols is None:
+        update_cols = [c for c in cols if c not in conflict_cols]
+    updates = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
+    sql = (
+        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
+        f"ON CONFLICT ({', '.join(conflict_cols)}) DO UPDATE SET {updates}"
+    )
+    conn.execute(sql, [row[c] for c in cols])
+
+    return (0, 1) if exists else (1, 0)
+
+
 def upsert_stream_state(
     conn: sqlite3.Connection,
     source: str,

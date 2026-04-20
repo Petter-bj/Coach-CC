@@ -22,7 +22,7 @@ import httpx
 
 from src.fit_parser import parse_fit_to_samples
 from src.paths import CONCEPT2_CREDS, FIT_FILES_DIR
-from src.sources.base import FatalError, RetryableError, Source
+from src.sources.base import FatalError, RetryableError, Source, upsert_row
 
 API_BASE = "https://log.concept2.com/api"
 
@@ -221,49 +221,25 @@ class Concept2Source(Source):
             intervals = parse_concept2_intervals(data)
 
             # Upsert workouts
-            conn.execute(
-                """
-                INSERT INTO workouts
-                    (external_id, source, started_at_utc, timezone, local_date,
-                     duration_sec, type, distance_m, avg_hr, calories)
-                VALUES (:external_id, :source, :started_at_utc, :timezone,
-                        :local_date, :duration_sec, :type, :distance_m,
-                        :avg_hr, :calories)
-                ON CONFLICT (source, external_id) DO UPDATE SET
-                    started_at_utc = excluded.started_at_utc,
-                    duration_sec = excluded.duration_sec,
-                    distance_m = excluded.distance_m,
-                    avg_hr = excluded.avg_hr,
-                    calories = excluded.calories
-                """,
-                workouts_row,
+            i, u = upsert_row(
+                conn, "workouts", workouts_row, ["source", "external_id"],
+                update_cols=["started_at_utc", "duration_sec", "distance_m",
+                             "avg_hr", "calories"],
             )
+            ins += i
+            upd += u
+
             wid = conn.execute(
                 "SELECT id FROM workouts WHERE source='concept2' AND external_id=?",
                 (workouts_row["external_id"],),
             ).fetchone()["id"]
-
             details_row["workout_id"] = wid
-            conn.execute(
-                """
-                INSERT INTO concept2_session_details
-                    (workout_id, c2_result_id, type, time_tenths, workout_type,
-                     source, avg_pace_500m_sec, avg_watts, avg_stroke_rate,
-                     stroke_count, drag_factor, rest_distance_m,
-                     rest_time_tenths, verified, raw_json)
-                VALUES (:workout_id, :c2_result_id, :type, :time_tenths,
-                        :workout_type, :source, :avg_pace_500m_sec, :avg_watts,
-                        :avg_stroke_rate, :stroke_count, :drag_factor,
-                        :rest_distance_m, :rest_time_tenths, :verified, :raw_json)
-                ON CONFLICT (workout_id) DO UPDATE SET
-                    avg_pace_500m_sec = excluded.avg_pace_500m_sec,
-                    avg_watts = excluded.avg_watts,
-                    avg_stroke_rate = excluded.avg_stroke_rate,
-                    stroke_count = excluded.stroke_count,
-                    drag_factor = excluded.drag_factor,
-                    raw_json = excluded.raw_json
-                """,
-                details_row,
+
+            upsert_row(
+                conn, "concept2_session_details", details_row, ["workout_id"],
+                update_cols=["avg_pace_500m_sec", "avg_watts",
+                             "avg_stroke_rate", "stroke_count",
+                             "drag_factor", "raw_json"],
             )
 
             # Bytt ut intervaller fullstendig (enkelt og idempotent)
@@ -299,7 +275,6 @@ class Concept2Source(Source):
                         for iv in intervals
                     ],
                 )
-            ins += 1
 
         conn.commit()
         return ins, upd

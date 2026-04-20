@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 
 from src.paths import YAZIO_CREDS
-from src.sources.base import FatalError, RetryableError, Source
+from src.sources.base import FatalError, RetryableError, Source, upsert_row
 
 BASE_URL = "https://yzapi.yazio.com/v20"
 TOKEN_URL = f"{BASE_URL}/oauth/token"
@@ -228,53 +228,19 @@ class YazioSource(Source):
             summary = resp.json()
 
             if write_meals:
-                # Skriv 4 rader per dag
                 for row in parse_yazio_meals(d, summary):
-                    conn.execute(
-                        """
-                        INSERT INTO yazio_meals
-                            (local_date, meal, kcal, protein_g, carbs_g,
-                             fat_g, energy_goal_kcal)
-                        VALUES (:local_date, :meal, :kcal, :protein_g,
-                                :carbs_g, :fat_g, :energy_goal_kcal)
-                        ON CONFLICT (local_date, meal) DO UPDATE SET
-                            kcal = excluded.kcal,
-                            protein_g = excluded.protein_g,
-                            carbs_g = excluded.carbs_g,
-                            fat_g = excluded.fat_g,
-                            energy_goal_kcal = excluded.energy_goal_kcal,
-                            synced_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-                        """,
-                        row,
+                    i, u = upsert_row(
+                        conn, "yazio_meals", row, ["local_date", "meal"],
                     )
-                    ins += 1
+                    ins += i
+                    upd += u
             else:
                 row = parse_yazio_daily(d, summary)
-                conn.execute(
-                    """
-                    INSERT INTO yazio_daily
-                        (local_date, kcal, protein_g, carbs_g, fat_g, steps,
-                         water_ml, kcal_goal, protein_goal_g, carbs_goal_g,
-                         fat_goal_g)
-                    VALUES (:local_date, :kcal, :protein_g, :carbs_g, :fat_g,
-                            :steps, :water_ml, :kcal_goal, :protein_goal_g,
-                            :carbs_goal_g, :fat_goal_g)
-                    ON CONFLICT (local_date) DO UPDATE SET
-                        kcal = excluded.kcal,
-                        protein_g = excluded.protein_g,
-                        carbs_g = excluded.carbs_g,
-                        fat_g = excluded.fat_g,
-                        steps = excluded.steps,
-                        water_ml = excluded.water_ml,
-                        kcal_goal = excluded.kcal_goal,
-                        protein_goal_g = excluded.protein_goal_g,
-                        carbs_goal_g = excluded.carbs_goal_g,
-                        fat_goal_g = excluded.fat_goal_g,
-                        synced_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-                    """,
-                    row,
+                i, u = upsert_row(
+                    conn, "yazio_daily", row, ["local_date"],
                 )
-                ins += 1
+                ins += i
+                upd += u
 
         conn.commit()
         return ins, upd
@@ -300,23 +266,9 @@ class YazioSource(Source):
             consumed = resp.json()
             rows = parse_yazio_consumed(d, consumed)
             for row in rows:
-                conn.execute(
-                    """
-                    INSERT INTO yazio_consumed_items
-                        (id, local_date, daytime, type, product_id,
-                         amount, serving, serving_quantity)
-                    VALUES (:id, :local_date, :daytime, :type, :product_id,
-                            :amount, :serving, :serving_quantity)
-                    ON CONFLICT (id) DO UPDATE SET
-                        daytime = excluded.daytime,
-                        amount = excluded.amount,
-                        serving = excluded.serving,
-                        serving_quantity = excluded.serving_quantity,
-                        synced_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-                    """,
-                    row,
-                )
-                ins += 1
+                i, u = upsert_row(conn, "yazio_consumed_items", row, ["id"])
+                ins += i
+                upd += u
         conn.commit()
         return ins, upd
 
