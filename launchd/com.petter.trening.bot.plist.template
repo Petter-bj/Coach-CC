@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.petter.trening.bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{APP_SUPPORT}}/scripts/start-bot.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+        <key>SHELL</key>
+        <string>/bin/bash</string>
+    </dict>
+
+    <!-- Start ved login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Re-sjekk hvert 5. minutt at sesjonen fortsatt finnes. Hvis tmux/claude
+         har krasjet, blir den re-startet. -->
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{LOGS}}/bot.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOGS}}/bot.stderr.log</string>
+
+    <!-- Ikke blokker andre prosesser -->
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

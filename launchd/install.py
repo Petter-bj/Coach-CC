@@ -24,7 +24,7 @@ TEMPLATE_DIR = REPO_ROOT / "launchd"
 INSTALL_DIR = Path.home() / "Library" / "LaunchAgents"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 
-JOBS = ["sync", "backup"]
+JOBS = ["sync", "backup", "bot"]
 
 
 def _uid() -> int:
@@ -50,7 +50,26 @@ def _render_template(job: str) -> str:
         .replace("{{PYTHON}}", str(VENV_PYTHON))
         .replace("{{REPO}}", str(REPO_ROOT))
         .replace("{{LOGS}}", str(LOGS))
+        .replace("{{HOME}}", str(Path.home()))
+        .replace("{{APP_SUPPORT}}", str(APP_SUPPORT))
     )
+
+
+def _copy_bot_script() -> None:
+    """Kopier start-bot.sh til ~/Library/Application Support/Trening/scripts/.
+
+    macOS TCC blokkerer launchd fra å execve() scripts under ~/Documents/,
+    men Python-binær via symlink til Homebrew er tillatt. Vi må ha scriptet
+    utenfor Documents for å kjøre det fra launchd.
+    """
+    import shutil
+    src = TEMPLATE_DIR / "start-bot.sh"
+    dest_dir = APP_SUPPORT / "scripts"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "start-bot.sh"
+    shutil.copy2(src, dest)
+    dest.chmod(0o755)
+    print(f"✓ Kopierte {src.name} → {dest}")
 
 
 def _run_launchctl(*args: str) -> tuple[int, str]:
@@ -70,6 +89,9 @@ def install() -> int:
 
     ensure_runtime_dirs()
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Kopier bot-script utenfor Documents/ (TCC-grunner)
+    _copy_bot_script()
 
     for job in JOBS:
         plist = _plist_path(job)
