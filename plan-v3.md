@@ -197,7 +197,7 @@ Output:
 - redacted JSON-fixtures lagret i `tests/fixtures/<source>/`
 - 1–2 ekte FIT-filer (Garmin løp/sykkel, Concept2 skierg)
 - bekreftelse på hvilke felter og tidsstempler som faktisk finnes
-- beslutning om Cronometer er med i v1 eller ikke
+- beslutning om Cronometer er med i v1 eller ikke (**avgjort 2026-04-19: droppet fra v1** — Cronometer har ikke self-service API for personlige brukere, kun enterprise/partner-tilgang)
 - beslutning om Garmin FIT-samples er med i v1 eller ikke
 
 ### Første-gangs historisk backfill
