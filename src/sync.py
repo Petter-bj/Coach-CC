@@ -26,6 +26,7 @@ from src.db.connection import connect
 from src.db.migrations import migrate
 from src.paths import APP_SUPPORT, SYNC_LOCK, ensure_runtime_dirs
 from src.sources.base import Source
+from src.sources.concept2 import Concept2Source
 from src.sources.garmin import GarminSource
 from src.sources.withings import WithingsSource
 
@@ -65,7 +66,7 @@ def check_disk_space(min_mb: int = MIN_FREE_DISK_MB) -> None:
 
 
 # Registry fylles på etter hvert som kilder implementeres.
-SOURCES: list[type[Source]] = [GarminSource, WithingsSource]
+SOURCES: list[type[Source]] = [GarminSource, WithingsSource, Concept2Source]
 
 
 def run(argv: list[str] | None = None) -> int:
