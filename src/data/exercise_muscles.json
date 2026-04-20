@@ -14,7 +14,8 @@
     "incline_bench_press": {
       "primary": "bryst",
       "secondary": ["skuldre", "triceps"],
-      "aliases": ["incline bench", "incline bench press", "skråbenk", "incline benk", "benk skrå"]
+      "aliases": ["incline bench", "incline bench press", "incline smith press",
+                  "smith incline press", "skråbenk", "incline benk", "benk skrå"]
     },
     "decline_bench_press": {
       "primary": "bryst",
@@ -34,7 +35,13 @@
     "chest_fly": {
       "primary": "bryst",
       "secondary": [],
-      "aliases": ["fly", "chest fly", "dumbbell fly", "cable fly", "flyes", "brystfly"]
+      "aliases": ["fly", "chest fly", "chest fly gløs", "dumbbell fly", "cable fly",
+                  "flyes", "brystfly", "pec deck"]
+    },
+    "chest_press_machine": {
+      "primary": "bryst",
+      "secondary": ["triceps", "skuldre"],
+      "aliases": ["chest press", "chest press gløs", "machine chest press", "brystpress maskin"]
     },
     "pushup": {
       "primary": "bryst",
@@ -109,12 +116,16 @@
     "calf_raise": {
       "primary": "calves",
       "secondary": [],
-      "aliases": ["calf raise", "tåhevning", "standing calf raise", "seated calf raise"]
+      "aliases": ["calf raise", "calf raise leg press", "calf raise leg press gløs",
+                  "calves leg press", "tåhevning", "standing calf raise",
+                  "seated calf raise"]
     },
     "pullup": {
       "primary": "rygg",
       "secondary": ["biceps", "forearms"],
-      "aliases": ["pullup", "pull-up", "pull up", "pullups", "kroppsheving"]
+      "aliases": ["pullup", "pull-up", "pull up", "pullups", "kroppsheving",
+                  "pull up weighted", "weighted pull up", "weighted pullup",
+                  "vektet pull up", "vektet kroppsheving"]
     },
     "chinup": {
       "primary": "rygg",
@@ -139,7 +150,9 @@
     "seated_cable_row": {
       "primary": "rygg",
       "secondary": ["biceps"],
-      "aliases": ["seated row", "cable row", "sittende roing", "roing kabel"]
+      "aliases": ["seated row", "cable row", "cable row medium grip",
+                  "cable row wide grip", "cable row close grip",
+                  "sittende roing", "roing kabel"]
     },
     "t_bar_row": {
       "primary": "rygg",
@@ -159,12 +172,15 @@
     "dumbbell_shoulder_press": {
       "primary": "skuldre",
       "secondary": ["triceps"],
-      "aliases": ["db shoulder press", "dumbbell shoulder press", "manual-skulderpress", "seated db press"]
+      "aliases": ["db shoulder press", "dumbbell shoulder press",
+                  "seated shoulder press db", "seated shoulder press dumbbell",
+                  "manual-skulderpress", "seated db press", "sittende skulderpress"]
     },
     "lateral_raise": {
       "primary": "skuldre",
       "secondary": [],
-      "aliases": ["lateral raise", "side raise", "sideløft", "lateral"]
+      "aliases": ["lateral raise", "lateral raise db", "lateral raise dumbbell",
+                  "db lateral raise", "side raise", "sideløft", "lateral"]
     },
     "front_raise": {
       "primary": "skuldre",
@@ -184,7 +200,8 @@
     "dumbbell_curl": {
       "primary": "biceps",
       "secondary": ["forearms"],
-      "aliases": ["db curl", "dumbbell curl", "manualcurl", "bicepscurl manual", "alternating curl"]
+      "aliases": ["db curl", "db curl mono", "dumbbell curl", "dumbbell curl mono",
+                  "manualcurl", "bicepscurl manual", "alternating curl", "mono curl"]
     },
     "hammer_curl": {
       "primary": "biceps",
@@ -204,7 +221,12 @@
     "tricep_extension": {
       "primary": "triceps",
       "secondary": [],
-      "aliases": ["tricep extension", "triceps extension", "overhead tricep", "french press"]
+      "aliases": ["tricep extension", "triceps extension", "tricep extension stang",
+                  "triceps extension stang", "tricep extension barbell",
+                  "overhead tricep", "overhead triceps extension",
+                  "overhead single arm cable", "single arm cable overhead",
+                  "crossbody tricep extension", "crossbody triceps extension",
+                  "french press"]
     },
     "dip": {
       "primary": "triceps",
@@ -230,6 +252,17 @@
       "primary": "abs",
       "secondary": [],
       "aliases": ["crunch", "crunches", "magebøy"]
+    },
+    "wrist_curl": {
+      "primary": "forearms",
+      "secondary": [],
+      "aliases": ["wrist curl", "wrist curls", "håndleddscurl", "underarm-curl"]
+    },
+    "wrist_extension": {
+      "primary": "forearms",
+      "secondary": [],
+      "aliases": ["wrist extension", "wrist extensions", "reverse wrist curl",
+                  "håndleddsekstensjon"]
     }
   }
 }
