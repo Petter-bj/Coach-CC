@@ -60,9 +60,9 @@ Tidsintervaller: `--range last_7d | last_30d | week_of=YYYY-MM-DD`.
 - `context active` / `context range --range last_30d`
 
 ### Styrke-screenshot-flyten
-- `strength stage --image <path> --data '<json>'`
-- `strength confirm --pending-id <id>`
-- `strength reject --pending-id <id>`
+- `strength check --data '<json>'` — forhåndsvis + PR-sjekk uten å skrive
+- `strength log --data '<json>' [--image <path>]` — commit (blokkerer ved urimelig PR)
+- `strength log --data '<json>' --force-pr` — overstyr PR-advarsel når vekten faktisk stemmer
 
 ### Analyse og baseline
 - `baselines show`
@@ -98,15 +98,17 @@ Når brukeren sender en screenshot av styrkeøkt:
 ```
 
 2. Hvis dato/tidspunkt mangler i bildet: spør brukeren. Default er nå minus 60 min.
-3. Hvis noe er usikkert (f.eks. vekt uleselig): spør før staging.
-4. Kall `strength stage --image <path> --data '<json>'`. CLI-en validerer mot
-   pydantic-schema og lagrer i `strength_sessions_pending`.
+3. Hvis noe er usikkert (f.eks. vekt uleselig): spør før du viser frem.
+4. **Kjør `strength check --data '<json>'`** først for å validere + se PR-sjekk.
 5. Oppsummer parset data i chat og be om `bekreft` / `forkast` / korreksjon.
-6. Ved bekreft: `strength confirm --pending-id <id>`. Ved korreksjon: merge og
-   stage på nytt (ny `stage --data`-kall, forkast gammel pending).
+6. Ved bekreft: `strength log --data '<json>' [--image <path>]`.
+7. Ved korreksjon: merge endringer og kjør `log` på nytt (samme `started_at_local`
+   gir samme `external_id` → idempotent overwrite).
 
-**PR-sanity-check:** hvis en vekt er > 40% høyere enn tidligere e1RM for
-øvelsen, spør eksplisitt "dette er en PR — stemmer det?" før staging.
+**PR-sanity-check:** `strength log` blokkerer automatisk hvis en e1RM er > 1.4×
+forrige topp for øvelsen. Hvis vekten faktisk stemmer (ekte PR), legg til
+`--force-pr`. Hvis Claude ser PR-advarsel i `check`: spør brukeren eksplisitt
+"dette er en PR — stemmer det?" før du kjører `log --force-pr`.
 
 ## Coaching-prinsipper
 
