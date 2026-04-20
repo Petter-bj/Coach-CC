@@ -25,6 +25,7 @@ from typing import Iterator
 from src.db.connection import connect
 from src.db.migrations import migrate
 from src.paths import APP_SUPPORT, SYNC_LOCK, ensure_runtime_dirs
+from src.analysis.baselines import refresh_baselines
 from src.reconcile import dedupe_workouts
 from src.sources.base import Source
 from src.sources.concept2 import Concept2Source
@@ -119,6 +120,10 @@ def _run_sync(args) -> None:
         marked = dedupe_workouts(conn)
         if marked:
             print(f"[reconcile] {marked} workout(s) markert som superseded")
+
+        # Refresh baselines (billig — 6 metrikker × 3 vinduer = 18 queries)
+        baseline_rows = refresh_baselines(conn)
+        print(f"[baselines] {baseline_rows} baseline-rader oppdatert")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,235 @@
+{
+  "_comment": "Exercise-navn normaliseres til lowercase og strippes for punktum før lookup. Aliases fanger norske + engelske varianter.",
+  "_schema": {
+    "primary": "Hovedmuskelgruppe (bryst, rygg, skuldre, biceps, triceps, quadriceps, hamstrings, glutes, calves, abs, forearms)",
+    "secondary": "Sekundære muskelgrupper (kan telle med 50% volum)",
+    "aliases": "Andre navn brukeren kan skrive"
+  },
+  "exercises": {
+    "bench_press": {
+      "primary": "bryst",
+      "secondary": ["triceps", "skuldre"],
+      "aliases": ["bench press", "benkpress", "benk", "flat bench", "barbell bench press", "benkpress flat"]
+    },
+    "incline_bench_press": {
+      "primary": "bryst",
+      "secondary": ["skuldre", "triceps"],
+      "aliases": ["incline bench", "incline bench press", "skråbenk", "incline benk", "benk skrå"]
+    },
+    "decline_bench_press": {
+      "primary": "bryst",
+      "secondary": ["triceps"],
+      "aliases": ["decline bench", "decline benk", "nedovervendt benk"]
+    },
+    "dumbbell_bench_press": {
+      "primary": "bryst",
+      "secondary": ["skuldre", "triceps"],
+      "aliases": ["db bench", "dumbbell bench", "manualbenkpress", "manual benkpress"]
+    },
+    "dumbbell_incline_press": {
+      "primary": "bryst",
+      "secondary": ["skuldre", "triceps"],
+      "aliases": ["db incline", "dumbbell incline press", "manual skråbenk"]
+    },
+    "chest_fly": {
+      "primary": "bryst",
+      "secondary": [],
+      "aliases": ["fly", "chest fly", "dumbbell fly", "cable fly", "flyes", "brystfly"]
+    },
+    "pushup": {
+      "primary": "bryst",
+      "secondary": ["triceps", "skuldre", "abs"],
+      "aliases": ["push-up", "push up", "pushups", "armhevninger"]
+    },
+    "squat": {
+      "primary": "quadriceps",
+      "secondary": ["glutes", "hamstrings"],
+      "aliases": ["squat", "knebøy", "knebøyning", "barbell squat", "back squat"]
+    },
+    "front_squat": {
+      "primary": "quadriceps",
+      "secondary": ["glutes", "abs"],
+      "aliases": ["front squat", "frontknebøy", "frontskvat"]
+    },
+    "goblet_squat": {
+      "primary": "quadriceps",
+      "secondary": ["glutes"],
+      "aliases": ["goblet squat", "goblet knebøy"]
+    },
+    "deadlift": {
+      "primary": "hamstrings",
+      "secondary": ["glutes", "rygg", "forearms"],
+      "aliases": ["deadlift", "markløft", "konvensjonell markløft", "conventional deadlift"]
+    },
+    "romanian_deadlift": {
+      "primary": "hamstrings",
+      "secondary": ["glutes", "rygg"],
+      "aliases": ["rdl", "romanian deadlift", "rumensk markløft", "rumensk"]
+    },
+    "sumo_deadlift": {
+      "primary": "quadriceps",
+      "secondary": ["glutes", "hamstrings", "rygg"],
+      "aliases": ["sumo deadlift", "sumo markløft"]
+    },
+    "leg_press": {
+      "primary": "quadriceps",
+      "secondary": ["glutes", "hamstrings"],
+      "aliases": ["leg press", "benpress"]
+    },
+    "lunge": {
+      "primary": "quadriceps",
+      "secondary": ["glutes", "hamstrings"],
+      "aliases": ["lunge", "lunges", "utfall", "walking lunges", "gå-utfall"]
+    },
+    "bulgarian_split_squat": {
+      "primary": "quadriceps",
+      "secondary": ["glutes"],
+      "aliases": ["bulgarian split squat", "bss", "bulgarske utfall"]
+    },
+    "leg_extension": {
+      "primary": "quadriceps",
+      "secondary": [],
+      "aliases": ["leg extension", "lårcurl forover", "benspark"]
+    },
+    "leg_curl": {
+      "primary": "hamstrings",
+      "secondary": [],
+      "aliases": ["leg curl", "lårcurl", "hamstring curl", "lying leg curl"]
+    },
+    "hip_thrust": {
+      "primary": "glutes",
+      "secondary": ["hamstrings"],
+      "aliases": ["hip thrust", "barbell hip thrust", "hofte-løft"]
+    },
+    "glute_bridge": {
+      "primary": "glutes",
+      "secondary": ["hamstrings"],
+      "aliases": ["glute bridge", "bro", "setefelt-bro"]
+    },
+    "calf_raise": {
+      "primary": "calves",
+      "secondary": [],
+      "aliases": ["calf raise", "tåhevning", "standing calf raise", "seated calf raise"]
+    },
+    "pullup": {
+      "primary": "rygg",
+      "secondary": ["biceps", "forearms"],
+      "aliases": ["pullup", "pull-up", "pull up", "pullups", "kroppsheving"]
+    },
+    "chinup": {
+      "primary": "rygg",
+      "secondary": ["biceps"],
+      "aliases": ["chinup", "chin-up", "chin up", "supinert kroppsheving"]
+    },
+    "lat_pulldown": {
+      "primary": "rygg",
+      "secondary": ["biceps"],
+      "aliases": ["lat pulldown", "pulldown", "nedtrekk", "nedtrekk smalt/bredt"]
+    },
+    "barbell_row": {
+      "primary": "rygg",
+      "secondary": ["biceps", "forearms"],
+      "aliases": ["barbell row", "bb row", "stangroing", "bøyd roing", "bent over row"]
+    },
+    "dumbbell_row": {
+      "primary": "rygg",
+      "secondary": ["biceps"],
+      "aliases": ["db row", "dumbbell row", "enarms roing", "one arm row", "manual-roing"]
+    },
+    "seated_cable_row": {
+      "primary": "rygg",
+      "secondary": ["biceps"],
+      "aliases": ["seated row", "cable row", "sittende roing", "roing kabel"]
+    },
+    "t_bar_row": {
+      "primary": "rygg",
+      "secondary": ["biceps"],
+      "aliases": ["t-bar row", "t bar row", "tbar"]
+    },
+    "face_pull": {
+      "primary": "skuldre",
+      "secondary": ["rygg"],
+      "aliases": ["face pull", "face-pull", "ansiktsstrekk"]
+    },
+    "overhead_press": {
+      "primary": "skuldre",
+      "secondary": ["triceps"],
+      "aliases": ["overhead press", "ohp", "military press", "press", "skulderpress", "ståbarbellpress"]
+    },
+    "dumbbell_shoulder_press": {
+      "primary": "skuldre",
+      "secondary": ["triceps"],
+      "aliases": ["db shoulder press", "dumbbell shoulder press", "manual-skulderpress", "seated db press"]
+    },
+    "lateral_raise": {
+      "primary": "skuldre",
+      "secondary": [],
+      "aliases": ["lateral raise", "side raise", "sideløft", "lateral"]
+    },
+    "front_raise": {
+      "primary": "skuldre",
+      "secondary": [],
+      "aliases": ["front raise", "frontløft"]
+    },
+    "rear_delt_fly": {
+      "primary": "skuldre",
+      "secondary": ["rygg"],
+      "aliases": ["rear delt fly", "reverse fly", "bak-delt fly"]
+    },
+    "barbell_curl": {
+      "primary": "biceps",
+      "secondary": ["forearms"],
+      "aliases": ["barbell curl", "bb curl", "bicepscurl stang"]
+    },
+    "dumbbell_curl": {
+      "primary": "biceps",
+      "secondary": ["forearms"],
+      "aliases": ["db curl", "dumbbell curl", "manualcurl", "bicepscurl manual", "alternating curl"]
+    },
+    "hammer_curl": {
+      "primary": "biceps",
+      "secondary": ["forearms"],
+      "aliases": ["hammer curl", "hammer curls", "hammercurl"]
+    },
+    "preacher_curl": {
+      "primary": "biceps",
+      "secondary": [],
+      "aliases": ["preacher curl", "scott curl"]
+    },
+    "tricep_pushdown": {
+      "primary": "triceps",
+      "secondary": [],
+      "aliases": ["tricep pushdown", "triceps pushdown", "pushdown", "triceps nedtrekk"]
+    },
+    "tricep_extension": {
+      "primary": "triceps",
+      "secondary": [],
+      "aliases": ["tricep extension", "triceps extension", "overhead tricep", "french press"]
+    },
+    "dip": {
+      "primary": "triceps",
+      "secondary": ["bryst", "skuldre"],
+      "aliases": ["dip", "dips", "tricep dip", "dips mellom stoler"]
+    },
+    "skull_crusher": {
+      "primary": "triceps",
+      "secondary": [],
+      "aliases": ["skull crusher", "lying tricep extension", "liggende triceps"]
+    },
+    "plank": {
+      "primary": "abs",
+      "secondary": [],
+      "aliases": ["plank", "planke", "planken"]
+    },
+    "hanging_leg_raise": {
+      "primary": "abs",
+      "secondary": [],
+      "aliases": ["hanging leg raise", "hengende benløft", "hengende mageøvelse"]
+    },
+    "crunch": {
+      "primary": "abs",
+      "secondary": [],
+      "aliases": ["crunch", "crunches", "magebøy"]
+    }
+  }
+}
