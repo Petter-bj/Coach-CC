@@ -25,6 +25,7 @@ from typing import Iterator
 from src.db.connection import connect
 from src.db.migrations import migrate
 from src.paths import APP_SUPPORT, SYNC_LOCK, ensure_runtime_dirs
+from src.reconcile import dedupe_workouts
 from src.sources.base import Source
 from src.sources.concept2 import Concept2Source
 from src.sources.garmin import GarminSource
@@ -112,6 +113,11 @@ def _run_sync(args) -> None:
                     f"ins={r.rows_inserted} upd={r.rows_updated} "
                     f"{(r.error_message or '')}"
                 )
+
+        # Reconcile dedupe — kjøres etter at alle sources har lagt inn data
+        marked = dedupe_workouts(conn)
+        if marked:
+            print(f"[reconcile] {marked} workout(s) markert som superseded")
 
 
 if __name__ == "__main__":
