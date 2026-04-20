@@ -30,6 +30,7 @@ from src.sources.base import Source
 from src.sources.concept2 import Concept2Source
 from src.sources.garmin import GarminSource
 from src.sources.withings import WithingsSource
+from src.sources.yazio import YazioSource
 
 MIN_FREE_DISK_MB = 500
 
@@ -67,7 +68,7 @@ def check_disk_space(min_mb: int = MIN_FREE_DISK_MB) -> None:
 
 
 # Registry fylles på etter hvert som kilder implementeres.
-SOURCES: list[type[Source]] = [GarminSource, WithingsSource, Concept2Source]
+SOURCES: list[type[Source]] = [GarminSource, WithingsSource, Concept2Source, YazioSource]
 
 
 def run(argv: list[str] | None = None) -> int:
