@@ -3,7 +3,7 @@
 #
 # Brukes av com.petter.trening.bot.plist. Sjekker om tmux-sesjonen
 # "trening" allerede finnes — hvis ja, gjør ingenting. Hvis nei,
-# oppretter den og starter `claude --channels plugin:telegram@...`.
+# venter på nett og oppretter sesjonen med `claude --channels plugin:telegram@...`.
 
 set -euo pipefail
 
@@ -12,20 +12,36 @@ REPO="/Users/petter/Documents/Prosjekter/Trening"
 CLAUDE_BIN="/Users/petter/.local/bin/claude"
 TMUX_BIN="/opt/homebrew/bin/tmux"
 LOG_DIR="$HOME/Library/Logs/Trening"
+PING_TARGET="api.telegram.org"
 
 mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/bot.start.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"
+}
 
 # Sjekk om sesjonen allerede finnes
 if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
-    echo "[$(date '+%Y-%m-%dT%H:%M:%S')] tmux-sesjon '$SESSION' finnes allerede — ingen handling" \
-        >> "$LOG_DIR/bot.start.log"
+    log "tmux-sesjon '$SESSION' finnes allerede — ingen handling"
     exit 0
 fi
+
+# Vent på at nettet er oppe (max 60 sek). Ved boot kan Wi-Fi ta litt tid.
+for i in {1..30}; do
+    if ping -c 1 -W 2 "$PING_TARGET" >/dev/null 2>&1; then
+        log "Nett oppe etter ${i} forsøk"
+        break
+    fi
+    if [[ $i -eq 30 ]]; then
+        log "Ga opp å vente på nett — starter Claude uansett (plugin reconnecter)"
+    fi
+    sleep 2
+done
 
 # Start ny detached sesjon
 cd "$REPO"
 "$TMUX_BIN" new-session -d -s "$SESSION" \
     "$CLAUDE_BIN --channels plugin:telegram@claude-plugins-official"
 
-echo "[$(date '+%Y-%m-%dT%H:%M:%S')] startet tmux '$SESSION' med claude code" \
-    >> "$LOG_DIR/bot.start.log"
+log "Startet tmux '$SESSION' med Claude Code"

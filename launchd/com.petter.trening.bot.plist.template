@@ -24,10 +24,14 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Re-sjekk hvert 5. minutt at sesjonen fortsatt finnes. Hvis tmux/claude
-         har krasjet, blir den re-startet. -->
+    <!-- Re-sjekk hvert minutt at sesjonen fortsatt finnes. Hvis tmux/claude
+         har krasjet eller nett var nede ved boot, kommer den raskt opp igjen. -->
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>60</integer>
+
+    <!-- Throttle slik at launchd ikke hamrer for fort mellom forsøk. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
 
     <key>StandardOutPath</key>
     <string>{{LOGS}}/bot.stdout.log</string>
