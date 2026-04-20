@@ -2,14 +2,14 @@
 
 ## Context
 
-Lokalt helsedata-system på Mac som henter data fra Garmin, Withings, Concept2 og eventuelt Cronometer til én SQLite-database. Telegram brukes ikke via egen bot-app, men som kanal inn til en kjørende Claude Code-sesjon på maskinen. Claude brukes til manuelle rapporter, spørsmål om data og parsing av styrke-screenshots. Ingen automatisk push. Ingen Anthropic API i v1.
+Lokalt helsedata-system på Mac som henter data fra Garmin, Withings, Concept2 og Yazio til én SQLite-database. Telegram brukes ikke via egen bot-app, men som kanal inn til en kjørende Claude Code-sesjon på maskinen. Claude brukes til manuelle rapporter, spørsmål om data og parsing av styrke-screenshots. Ingen automatisk push. Ingen Anthropic API i v1.
 
 ## 1. Arkitektur
 
 ```text
 launchd (hver time + RunAtLoad)
   -> python src/sync.py
-     -> Garmin / Withings / Concept2 / evt. Cronometer
+     -> Garmin / Withings / Concept2 / Yazio
      -> SQLite + FIT-cache + sync-state
 
 Manuell Claude Code-sesjon i repoet
@@ -191,13 +191,13 @@ Før schema låses kjøres manuelle auth-spikes og fixture-innsamling:
 - `spikes/garmin_login.py` — inkluderer **kritisk test:** forsøk å laste ned en FIT-fil via python-garminconnect. Hvis ikke direkte støttet, test undokumentert endpoint `connectapi.garmin.com/download-service/files/activity/{id}` med library-sessionen. **Hvis FIT-download ikke fungerer:** fallback-beslutning → behold kun aktivitets-summary uten `workout_samples` for Garmin. Concept2 FIT-download er uavhengig og trengs for slag-nivå-data.
 - `spikes/withings_oauth.py`
 - `spikes/concept2_oauth.py`
-- `spikes/cronometer_probe.py`
+- `spikes/yazio_login.py`
 
 Output:
 - redacted JSON-fixtures lagret i `tests/fixtures/<source>/`
 - 1–2 ekte FIT-filer (Garmin løp/sykkel, Concept2 skierg)
 - bekreftelse på hvilke felter og tidsstempler som faktisk finnes
-- beslutning om Cronometer er med i v1 eller ikke (**avgjort 2026-04-19: droppet fra v1** — Cronometer har ikke self-service API for personlige brukere, kun enterprise/partner-tilgang)
+- beslutning om kostholds-kilde (**avgjort 2026-04-20: Yazio er valgt, Cronometer droppet** — Cronometer har ikke self-service API for personlige brukere. Yazio-API virker via dimensi/yazio-forken på v20-endepunktene, støtter norsk mat-database `food_database_country=NO`, OAuth2 password-grant med baked-in client_id)
 - beslutning om Garmin FIT-samples er med i v1 eller ikke
 
 ### Første-gangs historisk backfill
@@ -223,7 +223,9 @@ Kjerne:
 - `garmin_daily`
 - `garmin_sleep`
 - `withings_weight`
-- `cronometer_daily` kun hvis API er bekreftet
+- `yazio_daily` — local_date UNIQUE, kcal, protein_g, carbs_g, fat_g, steps, water_ml (fra `/user/widgets/daily-summary` summert over meals)
+- `yazio_meals` — local_date + meal (breakfast|lunch|dinner|snack), kcal, protein_g, carbs_g, fat_g, UNIQUE(local_date, meal)
+- `yazio_consumed_items` — local_date, daytime, product_id, amount, serving, serving_quantity (fra `/user/consumed-items`, for detaljert drill-down)
 - `source_stream_state`
 - `sync_runs`
 - `schema_migrations`
@@ -263,7 +265,7 @@ Backfill per stream (daily streams henter rullerende vindu bakover, fordi kilder
 - `garmin_activities`: 30 dager (aktiviteter fra sen-synkede enheter)
 - `withings_weight`: 30 dager
 - `concept2_sessions`: 30 dager
-- `cronometer_daily`: 14 dager (hvis enabled)
+- `yazio_daily` / `yazio_meals`: 14 dager (bruker kan rette opp måltid i ettertid)
 
 Vinduet implementeres i `source_stream_state`: cursor-en er `last_successful_upper_bound`, men hvert run spør alltid fra `(cursor - backfill_window)` til nå. Idempotens sikres av UNIQUE constraints på naturlige nøkler.
 
@@ -324,7 +326,7 @@ Ingen uverifisert vision-output går rett til endelig treningshistorikk.
 │   │   ├── garmin.py
 │   │   ├── withings.py
 │   │   ├── concept2.py
-│   │   └── cronometer.py
+│   │   └── yazio.py
 │   ├── analysis/
 │   │   ├── recovery.py
 │   │   ├── trends.py
@@ -355,7 +357,7 @@ Ingen uverifisert vision-output går rett til endelig treningshistorikk.
 5. Garmin + FIT
 6. Withings
 7. Concept2 + dedupe
-8. Cronometer kun hvis bekreftet
+8. Yazio (password-grant, v20-endepunkt, daglig sammendrag + consumed-items)
 9. CLI-laget for status, rapporter og trendspørringer
 10. Coaching-CLI-er: wellness, goals, block, intake, injury, plan, baselines, rpe, volume, prs
 11. `exercise_muscles.json` + `volume_by_muscle_group`-aggregering

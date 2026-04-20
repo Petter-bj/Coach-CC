@@ -27,6 +27,7 @@ ENV_FILE = CREDENTIALS_DIR / ".env"
 GARMIN_TOKENS = CREDENTIALS_DIR / "garmin_tokens.json"
 WITHINGS_CREDS = CREDENTIALS_DIR / "withings.json"
 CONCEPT2_CREDS = CREDENTIALS_DIR / "concept2.json"
+YAZIO_CREDS = CREDENTIALS_DIR / "yazio.json"
 TELEGRAM_TOKEN_FILE = CREDENTIALS_DIR / "telegram_token"
 
 SYNC_LOG = LOGS / "sync.jsonl"

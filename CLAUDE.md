@@ -32,7 +32,8 @@ Tidsintervaller: `--range last_7d | last_30d | week_of=YYYY-MM-DD`.
 - `weight_trend --range last_30d`
 - `last_workouts --limit 10 [--type run|skierg|strength]`
 - `last_strength_sessions --limit 10`
-- `nutrition_week --week-of 2026-04-13` *(kun hvis Cronometer aktivert)*
+- `nutrition_week --week-of 2026-04-13` *(fra Yazio; NO-mat-database)*
+- `nutrition_today` — dagens kcal + makro-sum + måltids-breakdown
 
 ### Rapporter
 - `report morning` — bygger morgenrapport fra siste 24t + baselines + aktiv plan.
