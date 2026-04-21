@@ -729,7 +729,11 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
         volume_ramp_pct_per_week_max=0.10,
         strength_modulation="normal",
         notes=[
-            "Bakken-base er Z3-TUNG generelt: sub-threshold (2-3 mmol, 82-87% "
+            "VOLUM-TIER matter: Bakken-metoden er optimalisert for 100+ km/uke. "
+            "Under 25 km/uke løp: cross-training bærer CV-stimulus, løping kun "
+            "for spesifikk adaptasjon. 25-55 km/uke: polarisert hybrid (Seiler) "
+            "passer bedre enn Bakken-pure. 55+ km/uke: full Bakken-pyramidal.",
+            "Bakken-base er Z3-TUNG ved høyvolum: sub-threshold (2-3 mmol, 82-87% "
             "HRmax) er *definerende* stimulus. 2-3 økter/uke i amatør-versjonen.",
             "Men default i denne koden er REBUILD-base: run-Z3 blokkert fordi "
             "skade-historikk (shin splints) / nylig lavt volum gjør det usikkert. "
