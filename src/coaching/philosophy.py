@@ -727,9 +727,14 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             "Cross-training (SkiErg, sykkel): Z3 sub-threshold-intervaller OK — "
             "dette erstatter løp-Z3 som base-fase sub-threshold-stimulus. "
             "Sample: 3×10 min eller 5×6 min @ 82–87% HRmax, kontrollert.",
-            "Cross-training Z4-Z5 (over-threshold / VO2max) hører i build, IKKE base — "
-            "selv om SkiErg ikke belaster leggene. Bakken holder sub-threshold "
+            "Sustained Z4-Z5 (over-threshold intervaller ≥ 30 sek hard) hører "
+            "i build, IKKE base — uansett modus. Bakken holder sub-threshold "
             "uansett modus i base. Sentral fatigue er sentral fatigue.",
+            "VIKTIG nyanse: 'Ingen Z4-Z5 i base' gjelder SUSTAINED arbeid. "
+            "Korte bursts (<30 sek) som briefly spiker til Z4-Z5 er OK og "
+            "anbefalt — de er neuromuskulære, ikke aerobe. Derfor har base-fasen "
+            "`allow_neuromuscular_work = True`. Strides 4–6×15–30s submax, og "
+            "når shin er stabilt: X-element 10×200m eller hill sprints.",
             "1 sub-threshold cross-training-økt per uke er minimum, 2 er OK når "
             "volum-ramp er stabil.",
             "Volum-progresjon løping maks +10%/uke. Strengere hvis shin splints-historikk.",
