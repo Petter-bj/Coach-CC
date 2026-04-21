@@ -242,6 +242,35 @@ API integration saves enough friction to be worth re-learning an app.
   app, handwritten log on paper)
 - Both write to the same canonical `workouts`/`strength_sessions` tables
 
+**Bonus: add Hevy MCP for bidirectional chat integration.**
+
+[chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp) exposes 18 Hevy
+API tools via Model Context Protocol — complementary to the scheduled
+sync source:
+
+- 🔄 **Scheduled sync** (our `src/sources/hevy.py`): Pull workouts into
+  SQLite every hour for reports, baselines, PRs
+- 💬 **MCP** (chrisdoc/hevy-mcp): Let Claude **write** to Hevy from chat
+  — create/update routines, move exercises, scale weights, set up next
+  week's plan. Bidirectional where the source class is read-only.
+
+Example interactions the MCP unlocks:
+- "I'm tired today, replace tomorrow's heavy deadlift with a Z2 skierg"
+  → Claude modifies the routine in Hevy; it shows up on phone/watch
+- "Add 2.5kg to bench next push day" → Claude updates the routine
+  template so the progression sticks
+- "Build me a 6-week hypertrophy block focused on chest and back" →
+  Claude generates routines and organizes them in a folder
+
+Install is a couple of lines in `~/.claude/settings.json` under
+`mcpServers`. Requires same Hevy Pro key as the sync source class, so
+no extra cost.
+
+**Recommended build order once Hevy Pro is active:**
+1. Install chrisdoc/hevy-mcp first — immediate interactive value
+2. Log a couple of weeks of workouts to validate Hevy as the app
+3. Then build `src/sources/hevy.py` for scheduled sync → baselines/PRs
+
 ---
 
 ## 11. Independent Telegram alerter (decoupled from Claude Code)
