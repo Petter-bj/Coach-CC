@@ -103,14 +103,32 @@ def test_most_recent_active_block_wins(conn) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_base_phase_no_z3_ramp_conservative() -> None:
+def test_base_phase_no_run_z3_ramp_conservative() -> None:
     g = phase_guidance("base")
     assert g.phase == "base"
-    assert g.should_recommend_z3 is False
-    assert g.should_recommend_hard_intervals is False
+    assert g.should_recommend_run_z3 is False
+    assert g.should_recommend_run_hard_intervals is False
     assert g.run_intensity_cap_zone == "Z2"
     assert g.allow_long_runs_over_16km is False
     assert g.volume_ramp_pct_per_week_max == 0.10
+
+
+def test_base_phase_allows_cross_training_z3_not_hard() -> None:
+    """Bakken-konsistent: sub-threshold (Z3) på cross-training erstatter
+    løp-Z3 i base, men over-threshold (Z4-Z5) venter til build uansett modus.
+
+    Sentral fatigue er sentral fatigue — SkiErg Z5 er ikke 'gratis.'
+    """
+    g = phase_guidance("base")
+    # Z3 YES — erstatter løp-Z3
+    assert g.should_recommend_cross_training_z3 is True
+    # Z4-Z5 NO — over-threshold hører i build, uansett modus
+    assert g.should_recommend_cross_training_hard_intervals is False
+    assert g.cross_training_intensity_cap_zone == "Z3"
+    # Dokumentert i notes
+    joined = " ".join(g.notes).lower()
+    assert "sub-threshold" in joined or "sub threshold" in joined
+    assert "vo2max" in joined or "over-threshold" in joined
 
 
 def test_base_phase_allows_neuromuscular_and_progression() -> None:
@@ -118,16 +136,15 @@ def test_base_phase_allows_neuromuscular_and_progression() -> None:
     g = phase_guidance("base")
     assert g.allow_neuromuscular_work is True
     assert g.allow_progression_runs is True
-    # Dokumentert i notes slik at boten forklarer det riktig
     joined = " ".join(g.notes).lower()
     assert "strides" in joined
     assert "progressive" in joined
 
 
-def test_build_phase_allows_z3_and_hard() -> None:
+def test_build_phase_allows_run_z3_and_hard() -> None:
     g = phase_guidance("build")
-    assert g.should_recommend_z3 is True
-    assert g.should_recommend_hard_intervals is True
+    assert g.should_recommend_run_z3 is True
+    assert g.should_recommend_run_hard_intervals is True
     assert g.run_intensity_cap_zone == "Z5"
     assert g.allow_long_runs_over_16km is True
 
@@ -140,7 +157,7 @@ def test_peak_phase_minimal_strength_no_ramp() -> None:
 
 def test_taper_phase_ramps_down() -> None:
     g = phase_guidance("taper")
-    assert g.volume_ramp_pct_per_week_max < 0  # negativ ramp
+    assert g.volume_ramp_pct_per_week_max < 0
     assert g.strength_modulation == "minimal"
     assert g.allow_long_runs_over_16km is False
 
@@ -148,10 +165,11 @@ def test_taper_phase_ramps_down() -> None:
 def test_recovery_phase_caps_at_z2_no_hard() -> None:
     g = phase_guidance("recovery")
     assert g.run_intensity_cap_zone == "Z2"
-    assert g.should_recommend_hard_intervals is False
-    assert g.should_recommend_z3 is False
-    # Heller ikke neuromuskulær stimulus — kroppen skal hvile
+    assert g.should_recommend_run_hard_intervals is False
+    assert g.should_recommend_run_z3 is False
     assert g.allow_neuromuscular_work is False
+    # Recovery kapper også cross-training — ulikt base
+    assert g.should_recommend_cross_training_hard_intervals is False
 
 
 def test_taper_allows_strides_but_not_progression() -> None:
@@ -159,6 +177,17 @@ def test_taper_allows_strides_but_not_progression() -> None:
     g = phase_guidance("taper")
     assert g.allow_neuromuscular_work is True
     assert g.allow_progression_runs is False
+
+
+def test_base_allows_cross_z3_even_when_run_z3_blocked() -> None:
+    """I base: løp-Z3 blokkert (skade-gated), men cross-Z3 er tillatt.
+
+    Dette er hele poenget med å splitte feltene — skade-begrensning rammer
+    løping-intensitet, ikke CV-systemet.
+    """
+    g = phase_guidance("base")
+    assert g.should_recommend_run_z3 is False
+    assert g.should_recommend_cross_training_z3 is True
 
 
 def test_unknown_phase_defaults_to_base_conservative() -> None:

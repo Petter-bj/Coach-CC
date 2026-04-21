@@ -582,14 +582,25 @@ PhaseName = Literal["base", "build", "peak", "taper", "recovery"]
 class PhaseGuidance:
     phase: str
     focus: str  # kort stikkord-fokus for fasen
+
+    # Løping — skade-gated. Shin splints / generell vev-sensitivitet begrenser.
     run_intensity_cap_zone: str  # høyeste tillatte løpe-sone rutinemessig
-    volume_ramp_pct_per_week_max: float
-    strength_modulation: str  # "normal" | "reduced" | "minimal"
-    should_recommend_z3: bool  # om rene Z3-intervaller er aktuelle (5×6 min etc)
-    should_recommend_hard_intervals: bool  # Z5/VO2max-intervaller
-    allow_neuromuscular_work: bool  # strides, korte accelerasjoner (ikke lactate-stress)
+    should_recommend_run_z3: bool  # rene Z3-intervaller som løp
+    should_recommend_run_hard_intervals: bool  # Z5/VO2max som løp
+    allow_neuromuscular_work: bool  # strides, korte accelerasjoner
     allow_progression_runs: bool  # easy → svak Z3-drift siste 5-10 min
     allow_long_runs_over_16km: bool
+
+    # Cross-training (SkiErg, sykkel, roerg) — CV-gated. Ingen impact.
+    # Regel: cross-training-intensitet skal ALDRI være mer begrenset enn
+    # løpe-intensitet. Hvis du ikke kan løpe hardt pga skade, kan du likevel
+    # få CV-stimulus via cross-training.
+    cross_training_intensity_cap_zone: str
+    should_recommend_cross_training_z3: bool
+    should_recommend_cross_training_hard_intervals: bool
+
+    volume_ramp_pct_per_week_max: float
+    strength_modulation: str  # "normal" | "reduced" | "minimal"
     notes: list[str]  # ekstra kontekst for boten
 
 
@@ -609,13 +620,16 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             phase="build",
             focus="Z3-ramp + første Z5-økter, bygge spesifikk kapasitet",
             run_intensity_cap_zone="Z5",
-            volume_ramp_pct_per_week_max=0.10,
-            strength_modulation="reduced",
-            should_recommend_z3=True,
-            should_recommend_hard_intervals=True,
+            should_recommend_run_z3=True,
+            should_recommend_run_hard_intervals=True,
             allow_neuromuscular_work=True,
             allow_progression_runs=True,
             allow_long_runs_over_16km=True,
+            cross_training_intensity_cap_zone="Z5",
+            should_recommend_cross_training_z3=True,
+            should_recommend_cross_training_hard_intervals=True,
+            volume_ramp_pct_per_week_max=0.10,
+            strength_modulation="reduced",
             notes=[
                 "Z3-volum skal være 20–25% av ukesvolumet i build.",
                 "Introduser én Z5-økt/uke når base-volum > 40 km/uke.",
@@ -627,13 +641,16 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             phase="peak",
             focus="race-pace-spesifikt arbeid, sharp",
             run_intensity_cap_zone="Z5",
-            volume_ramp_pct_per_week_max=0.0,  # ikke ramp i peak
-            strength_modulation="minimal",
-            should_recommend_z3=True,
-            should_recommend_hard_intervals=True,
+            should_recommend_run_z3=True,
+            should_recommend_run_hard_intervals=True,
             allow_neuromuscular_work=True,
             allow_progression_runs=True,
             allow_long_runs_over_16km=True,
+            cross_training_intensity_cap_zone="Z5",
+            should_recommend_cross_training_z3=True,
+            should_recommend_cross_training_hard_intervals=True,
+            volume_ramp_pct_per_week_max=0.0,  # ikke ramp i peak
+            strength_modulation="minimal",
             notes=[
                 "Hold volum konstant eller svakt fallende.",
                 "Styrke: bare tekniske sett, ingen tungt 48t før race.",
@@ -645,13 +662,16 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             phase="taper",
             focus="volum ned 30–50%, intensitet bevart, hvile",
             run_intensity_cap_zone="Z5",
-            volume_ramp_pct_per_week_max=-0.3,  # ramping ned
-            strength_modulation="minimal",
-            should_recommend_z3=True,
-            should_recommend_hard_intervals=True,
+            should_recommend_run_z3=True,
+            should_recommend_run_hard_intervals=True,
             allow_neuromuscular_work=True,  # strides holder på skarphet
             allow_progression_runs=False,  # unngå nye stimuli
             allow_long_runs_over_16km=False,
+            cross_training_intensity_cap_zone="Z3",  # lettere cross-training
+            should_recommend_cross_training_z3=True,
+            should_recommend_cross_training_hard_intervals=False,  # ikke CV-stress
+            volume_ramp_pct_per_week_max=-0.3,  # ramping ned
+            strength_modulation="minimal",
             notes=[
                 "Negative taper: korte race-pace-biter, lite volum.",
                 "Ingen nye stimuli, ingen tunge løft.",
@@ -664,42 +684,58 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             phase="recovery",
             focus="aktiv restitusjon etter race eller skade",
             run_intensity_cap_zone="Z2",
-            volume_ramp_pct_per_week_max=0.0,
-            strength_modulation="reduced",
-            should_recommend_z3=False,
-            should_recommend_hard_intervals=False,
+            should_recommend_run_z3=False,
+            should_recommend_run_hard_intervals=False,
             allow_neuromuscular_work=False,  # kroppen skal hvile
             allow_progression_runs=False,
             allow_long_runs_over_16km=False,
+            cross_training_intensity_cap_zone="Z2",
+            should_recommend_cross_training_z3=False,
+            should_recommend_cross_training_hard_intervals=False,
+            volume_ramp_pct_per_week_max=0.0,
+            strength_modulation="reduced",
             notes=[
                 "Ingen harde økter på minst 7–10 dager etter race.",
-                "Cross-training OK og ofte foretrukket.",
+                "Cross-training OK og ofte foretrukket — men også lett.",
                 "Lytt til kropp — ikke struktur.",
             ],
         )
-    # base eller None → konservativ default
+    # base eller None → Bakken-konsistent: sub-threshold arbeid uansett modus,
+    # ingen VO2max-stimulus. Cross-training erstatter løp-Z3 når tissue ikke
+    # tolererer det, men cross-training går IKKE over threshold bare fordi det
+    # er cross-training.
     return PhaseGuidance(
         phase="base",
-        focus="volum-toleranse + aerob base, shin splints-sensitiv",
+        focus="sub-threshold-arbeid uansett modus, løp-volum-toleranse, aerob base",
         run_intensity_cap_zone="Z2",
-        volume_ramp_pct_per_week_max=0.10,
-        strength_modulation="normal",
-        should_recommend_z3=False,
-        should_recommend_hard_intervals=False,
+        should_recommend_run_z3=False,
+        should_recommend_run_hard_intervals=False,
         allow_neuromuscular_work=True,
         allow_progression_runs=True,
         allow_long_runs_over_16km=False,
+        # Cross-training Z3 (sub-threshold) erstatter løp-Z3 når tissue
+        # ikke tolererer. Men Z4-Z5 (over-threshold / VO2max) hører i build,
+        # uansett modus — sentral fatigue er sentral fatigue.
+        cross_training_intensity_cap_zone="Z3",
+        should_recommend_cross_training_z3=True,
+        should_recommend_cross_training_hard_intervals=False,
+        volume_ramp_pct_per_week_max=0.10,
+        strength_modulation="normal",
         notes=[
-            "Hovedmål: bygge aerob base og volum-toleranse. Ingen rene Z3-intervaller enda.",
-            "Volum-progresjon maks +10%/uke (strengere hvis shin splints-historikk).",
-            "Strides 1–2×/uke på slutten av easy-run (4–6 × 15–30s submax) OK — "
-            "gir neuromuskulær stimulus uten lactate-stress. Flate strides, "
-            "ikke hill sprints, pga shin splints-sensitivitet.",
-            "Progressive runs OK (easy → svak Z3-drift siste 5–10 min) når volum "
-            "er stabilt og shin er rolig — gir smak av Z3 uten full interval-stress.",
-            "Når ukesvolum stabiliserer seg ≥ 30 km/uke OG ingen aktiv shin "
-            "splints: kan introdusere én kontrollert Z3-økt/uke. Da går vi inn "
-            "i 'late base' som overgang til build.",
+            "Løping: volum-toleranse + aerob base. Ingen rene Z3-intervaller enda "
+            "(tissue-gated pga skade-historikk). Strides OK, progressive runs OK.",
+            "Cross-training (SkiErg, sykkel): Z3 sub-threshold-intervaller OK — "
+            "dette erstatter løp-Z3 som base-fase sub-threshold-stimulus. "
+            "Sample: 3×10 min eller 5×6 min @ 82–87% HRmax, kontrollert.",
+            "Cross-training Z4-Z5 (over-threshold / VO2max) hører i build, IKKE base — "
+            "selv om SkiErg ikke belaster leggene. Bakken holder sub-threshold "
+            "uansett modus i base. Sentral fatigue er sentral fatigue.",
+            "1 sub-threshold cross-training-økt per uke er minimum, 2 er OK når "
+            "volum-ramp er stabil.",
+            "Volum-progresjon løping maks +10%/uke. Strengere hvis shin splints-historikk.",
+            "Når løpevolum stabiliserer seg ≥ 30 km/uke OG ingen aktive "
+            "shin-symptomer → kan introdusere én kontrollert Z3-løpeøkt/uke "
+            "('late base' — overgang til build).",
             "Styrke: normal progresjon — base-fase konflikter ikke med tunge løft.",
         ],
     )
