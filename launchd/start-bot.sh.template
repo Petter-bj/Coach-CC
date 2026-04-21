@@ -27,6 +27,16 @@ log() {
     echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
+# launchd gir oss en minimal PATH (ikke .zshrc/.bashrc). MCP-servere som
+# hevy-mcp spawnes via `npx` — hvis node ligger under nvm, er den ikke på
+# PATH her. Legg til nyeste nvm-installerte node-bin hvis den finnes.
+if [[ -d "$HOME/.nvm/versions/node" ]]; then
+    NVM_LATEST_BIN=$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$NVM_LATEST_BIN" ]]; then
+        export PATH="$NVM_LATEST_BIN:$PATH"
+    fi
+fi
+
 # Sjekk om sesjonen allerede finnes (på vår fikserte socket)
 if "$TMUX_BIN" -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
     log "tmux-sesjon '$SESSION' finnes allerede — ingen handling"
