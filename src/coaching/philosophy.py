@@ -571,6 +571,121 @@ def fueling_recommendation(
 
 
 # ---------------------------------------------------------------------------
+# Blokk-fase-modulering — hvordan coaching-beslutninger skifter per fase
+# ---------------------------------------------------------------------------
+
+
+PhaseName = Literal["base", "build", "peak", "taper", "recovery"]
+
+
+@dataclass
+class PhaseGuidance:
+    phase: str
+    focus: str  # kort stikkord-fokus for fasen
+    run_intensity_cap_zone: str  # høyeste tillatte løpe-sone rutinemessig
+    volume_ramp_pct_per_week_max: float
+    strength_modulation: str  # "normal" | "reduced" | "minimal"
+    should_recommend_z3: bool  # om Z3-økter er aktuelle denne fasen
+    should_recommend_hard_intervals: bool  # Z5-intervaller aktuelt?
+    allow_long_runs_over_16km: bool
+    notes: list[str]  # ekstra kontekst for boten
+
+
+def phase_guidance(phase: str | None) -> PhaseGuidance:
+    """Returner hva som er passende gjøren i hver fase.
+
+    base:      volum-toleranse + aerob base, ingen Z3-ramp
+    build:     Z3-ramp tillatt, introduser Z5-økt når base-volum er stabilt
+    peak:      race-spesifikt (race-pace, submax-økter)
+    taper:     volum-reduksjon, intensitet bevart, sharp + rested
+    recovery:  aktiv restitusjon, alt mykt
+
+    Ukjent/None fase → default til base (konservativ).
+    """
+    if phase == "build":
+        return PhaseGuidance(
+            phase="build",
+            focus="Z3-ramp + første Z5-økter, bygge spesifikk kapasitet",
+            run_intensity_cap_zone="Z5",
+            volume_ramp_pct_per_week_max=0.10,
+            strength_modulation="reduced",
+            should_recommend_z3=True,
+            should_recommend_hard_intervals=True,
+            allow_long_runs_over_16km=True,
+            notes=[
+                "Z3-volum skal være 20–25% av ukesvolumet i build.",
+                "Introduser én Z5-økt/uke når base-volum > 40 km/uke.",
+                "Heavy legs 24t før hardøkt → flagg (eats the threshold).",
+            ],
+        )
+    if phase == "peak":
+        return PhaseGuidance(
+            phase="peak",
+            focus="race-pace-spesifikt arbeid, sharp",
+            run_intensity_cap_zone="Z5",
+            volume_ramp_pct_per_week_max=0.0,  # ikke ramp i peak
+            strength_modulation="minimal",
+            should_recommend_z3=True,
+            should_recommend_hard_intervals=True,
+            allow_long_runs_over_16km=True,
+            notes=[
+                "Hold volum konstant eller svakt fallende.",
+                "Styrke: bare tekniske sett, ingen tungt 48t før race.",
+                "1–2 hardøkter/uke, ikke mer.",
+            ],
+        )
+    if phase == "taper":
+        return PhaseGuidance(
+            phase="taper",
+            focus="volum ned 30–50%, intensitet bevart, hvile",
+            run_intensity_cap_zone="Z5",
+            volume_ramp_pct_per_week_max=-0.3,  # ramping ned
+            strength_modulation="minimal",
+            should_recommend_z3=True,
+            should_recommend_hard_intervals=True,
+            allow_long_runs_over_16km=False,
+            notes=[
+                "Negative taper: korte race-pace-biter, lite volum.",
+                "Ingen nye stimuli, ingen tunge løft.",
+                "Søvn + hydrering + fueling er jobben.",
+            ],
+        )
+    if phase == "recovery":
+        return PhaseGuidance(
+            phase="recovery",
+            focus="aktiv restitusjon etter race eller skade",
+            run_intensity_cap_zone="Z2",
+            volume_ramp_pct_per_week_max=0.0,
+            strength_modulation="reduced",
+            should_recommend_z3=False,
+            should_recommend_hard_intervals=False,
+            allow_long_runs_over_16km=False,
+            notes=[
+                "Ingen harde økter på minst 7–10 dager etter race.",
+                "Cross-training OK og ofte foretrukket.",
+                "Lytt til kropp — ikke struktur.",
+            ],
+        )
+    # base eller None → konservativ default
+    return PhaseGuidance(
+        phase="base",
+        focus="volum-toleranse + aerob base, shin splints-sensitiv",
+        run_intensity_cap_zone="Z2",
+        volume_ramp_pct_per_week_max=0.10,
+        strength_modulation="normal",
+        should_recommend_z3=False,
+        should_recommend_hard_intervals=False,
+        allow_long_runs_over_16km=False,
+        notes=[
+            "Hovedmål: bygge aerob base og volum-toleranse. Ingen Z3-ramp.",
+            "Volum-progresjon maks +10%/uke (strengere hvis shin splints-historikk).",
+            "Én enkelt sub-threshold-økt/uke er OK som stimulus, ikke mer.",
+            "Styrke: normal progresjon — base-fase konflikter ikke med tunge løft.",
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Søvn-basert readiness-flag
 # ---------------------------------------------------------------------------
 

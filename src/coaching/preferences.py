@@ -110,6 +110,51 @@ def get_weight_kg(conn: sqlite3.Connection) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Training block / phase
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ActiveBlock:
+    id: int
+    name: str
+    phase: str  # 'base' | 'build' | 'peak' | 'taper' | 'recovery'
+    start_date: str
+    end_date: str
+    primary_goal_id: int | None
+    notes: str | None
+
+
+def get_active_block(conn: sqlite3.Connection) -> ActiveBlock | None:
+    """Returner aktiv treningsblokk (den som inneholder dagens dato).
+
+    Hvis ingen blokk dekker i dag, returner None.
+    """
+    row = conn.execute(
+        """
+        SELECT id, name, phase, start_date, end_date, primary_goal_id, notes
+          FROM training_blocks
+         WHERE date('now') BETWEEN start_date AND end_date
+         ORDER BY start_date DESC
+         LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    return ActiveBlock(
+        id=row["id"], name=row["name"], phase=row["phase"],
+        start_date=row["start_date"], end_date=row["end_date"],
+        primary_goal_id=row["primary_goal_id"], notes=row["notes"],
+    )
+
+
+def current_phase(conn: sqlite3.Connection) -> str | None:
+    """Shortcut — bare phase-navnet fra aktiv blokk, eller None."""
+    b = get_active_block(conn)
+    return b.phase if b else None
+
+
+# ---------------------------------------------------------------------------
 # exercise_preferences (per øvelse)
 # ---------------------------------------------------------------------------
 
