@@ -71,6 +71,18 @@ Time ranges: `--range last_7d | last_30d | week_of=YYYY-MM-DD`.
 - `volume --range last_7d`
 - `prs [--exercise '...']`
 
+### Coaching and preferences
+- `prefs list` / `prefs get <key>` / `prefs set <key> <value>`
+  - Keys: `training_priority` (cardio|strength|balanced),
+    `strength_rep_min_default`, `strength_rep_max_default`,
+    `strength_increment_kg_default`
+- `exercise known` — list every exercise we have history for
+- `exercise show "Bench Press"` — effective prefs (default + override merged)
+- `exercise list` — only exercises with explicit overrides
+- `exercise set "Bench Press" --rep-window 6-10 --increment 2.5 --type compound`
+- `progression next "Bench Press"` — double-progression recommendation
+- `progression history "Bench Press"` — last top set (debug)
+
 ### Hevy MCP (direct API access)
 
 When the user asks about strength workouts, routines, or exercises, **prefer
@@ -134,21 +146,72 @@ explicitly "is this really a PR — correct?" before running `log --force-pr`.
 
 ## Coaching principles
 
-When building a report or recommendation, always pull in:
-- Active `block current` and `goals list`.
-- Active `injury active` and `context active` rows (travel, illness, stress).
-- Baselines (`baselines show`) to frame today's numbers against *the user's own*
-  normal — never generic norms. Example: "HRV 45ms (7d avg: 52, status: UNBALANCED)".
-- Last-7-day `session_load` sum (acute) and 28-day average (chronic) for the
-  Acute:Chronic Workload Ratio (ACR):
-  - ACR 0.8–1.3: sweet spot, normal training.
-  - ACR > 1.5: elevated injury risk, recommend a deload.
-  - ACR < 0.8: undertraining (fine during taper).
-- Plan adherence last week (`plan adherence`).
+These are codified in `src/coaching/philosophy.py` and must be followed
+consistently — don't soften them or translate them into generic advice.
 
-Never give generic advice — tailor to block phase, goals, active injuries, and
-context. If the user is sick or injured: recommend rest regardless of what the
-readiness numbers say.
+### Strength
+
+1. **Double progression** is the default rule. Use
+   `progression next "Exercise"` instead of reasoning about reps/weight
+   yourself. Rule: top set hits `rep_max` → increase weight by
+   `increment_kg`, reset to `rep_min`. Below `rep_max` → same weight,
+   push +1 rep. Rep window and increment live per-exercise in
+   `exercise_preferences` (`exercise show "Exercise"`).
+2. **Strength needs proximity to failure** for stimulus. Do not recommend
+   backing off based on readiness unless readiness < 25 (likely-ill
+   territory).
+3. **e1RM only for compound lifts.** For isolation, track rep/set
+   progression — cable setups, ROM, and technique make e1RM meaningless
+   there.
+4. **Never schedule a deload.** Vacation, illness, and life deliver
+   natural deloads. Do not proactively suggest a deload week regardless
+   of what ACR or stagnation data show. Only exception: the user
+   *explicitly* asks about a deload.
+
+### Cardio and volume
+
+1. **Readiness data modulates cardio/volume** — not strength intensity.
+   Readiness < 40 → recommend Z1-Z2. < 60 → planned session OK, don't
+   push extra.
+2. **ACR thresholds** (Acute:Chronic Workload Ratio):
+   - 0.8–1.3: sweet spot, normal training
+   - \> 1.5: elevated injury risk — *recommend considering tempo/volume
+     reduction* (but not a full deload, per rule above)
+   - < 0.8: undertraining (fine during taper)
+
+### Priority (user-configurable)
+
+`prefs get training_priority` returns `cardio` | `strength` | `balanced`.
+Drives conflict resolution between strength and running:
+
+- **cardio** (default): race week → strength reduced to ~60% volume,
+  technical sets only. Heavy legs < 36h before long run → flag.
+- **balanced**: race week → ~75% strength volume.
+- **strength**: strength takes priority, no reduction even in race week.
+
+Use `src.coaching.philosophy.strength_running_conflict(priority, ...)` for
+deterministic rulings.
+
+### Injuries — hard stops
+
+- **Shin splints active** (body_part or notes contains "shin",
+  "legghinne", "mediotibial"): **no running** that day regardless of
+  what the plan says or readiness indicates. Recommend cross-training
+  (skierg, bike, swim). Use `src.coaching.philosophy.running_ruling(injuries)`.
+- Other injuries: soft warning ("check in"), not a hard stop, unless the
+  user has expressed specific protocols.
+
+### Always pull in for reports/recommendations
+
+- Active `block current` and `goals list`
+- Active `injury active` and `context active` rows (travel, illness, stress)
+- Baselines (`baselines show`) — frame numbers against *the user's own*
+  normal, never generic norms. Example: "HRV 45ms (7d avg: 52, UNBALANCED)"
+- Plan adherence last week (`plan adherence`)
+
+Never give generic advice. Tailor to block phase, goals, active injuries,
+and context. If the user is ill: recommend rest regardless of what the
+numbers say.
 
 ## Proactive data collection
 
