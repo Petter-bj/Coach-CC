@@ -266,3 +266,106 @@ min and sends plain Telegram messages via Bot API when unacknowledged
 alerts exist. Works even when Claude Code session is down.
 
 Today Claude Code surfaces alerts when you ask — silent otherwise.
+
+---
+
+## 12. Proactive coaching — outbound messages on schedule / on event
+
+**The gap.** Today the bot is fully reactive — it only responds when you
+message it. A real coach sends "how was the session?" after a workout,
+"HRV looks low, sleep OK?" at breakfast, "did you skip today's run?" at
+18:00, without you asking. Our system has all the data to do this but
+no mechanism to act on it.
+
+**Trigger taxonomy.**
+
+*Time-based:*
+- 07:00 daily → morning check-in ("sleep OK? log wellness before I give
+  you today's readiness")
+- 20:00 Sunday → weekly review push
+- 18:00 daily → "planned workout today, you haven't logged anything
+  yet — still happening?"
+
+*Data-driven (runs after each hourly sync):*
+- New Garmin activity with no RPE after 2h → "how hard was that?"
+- HRV < baseline × 0.9 → "HRV a bit low — alcohol, stress, sickness?"
+- Sleep score < 60 → "rough night, consider moving the intensive
+  session to tomorrow"
+- ACR crossed 1.5 → "your load is spiking, recommend deload next week"
+- 3+ consecutive days below protein goal → "protein is trending low,
+  adjust meals?"
+- Same injury active > 14 days → "knee still sore after 2 weeks —
+  should we flag this to a physio?"
+
+*Anti-spam guardrails:*
+- Max 3 messages / day
+- Don't nag the same thing twice within 48h
+- Quiet hours (no messages 22:00–06:00)
+- Pause all proactive messages during active `context_log` (travel,
+  illness — already stressed enough)
+
+**Architecture options.**
+
+### Option A: Template-based (simplest, ~1 day to build)
+
+```
+launchd (every 30 min)
+   ↓
+python -m src.proactive.check
+   ↓
+Evaluates triggers against current DB state
+   ↓
+For each fired trigger:
+   - Load pre-written message template
+   - Fill in data (actual HRV ms, baseline value, etc.)
+   - Send via Telegram Bot API directly
+   - Log in proactive_messages table (dedupe, rate-limit)
+```
+
+- Pro: Cheap, no AI calls, predictable
+- Con: Messages feel canned after a week
+
+### Option B: Claude-generated messages (natural coach voice)
+
+Same trigger logic, but when a trigger fires the script calls Claude API
+(not the Max subscription — a separate API key) with trigger context
+and asks it to phrase the message naturally. Then sends via Telegram.
+
+- Pro: Feels genuinely conversational
+- Con: API costs (~$0.01-0.05/message), separate billing from Max
+- Mitigation: batch trigger evaluations to minimize calls
+
+### Option C: Trigger → inject to running Claude Code session
+
+Harder — Claude Code plan mode / channels don't obviously support
+external pushes. Would require deeper Claude Code integration.
+
+Probably overkill. Option A → B evolution is cleaner.
+
+**New schema.**
+
+```sql
+CREATE TABLE proactive_triggers (
+    id, name, schedule_cron or event_type,
+    enabled, quiet_hours_start, quiet_hours_end, ...
+);
+
+CREATE TABLE proactive_messages (
+    id, trigger_id, sent_at, payload,
+    user_reacted_at  -- did user reply in Telegram?
+);
+```
+
+**Metrics to track.**
+- Response rate per trigger type (are these useful or noise?)
+- User reply latency (did they engage quickly or ignore?)
+- Did the trigger correlate with actual behavior change
+  (e.g. did the "load spike" warning lead to a deload in the next 7d?)
+
+Without that feedback loop, a proactive system becomes spam. With it,
+the coach gets better at knowing when YOU want to hear from it.
+
+**Dependencies on other IDEAS.**
+- Idea #11 (independent Telegram alerter) is a prerequisite — same
+  outbound-messaging infrastructure, just rule-based
+- Eventually both become "one proactive service, many triggers"
