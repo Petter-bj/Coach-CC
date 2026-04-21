@@ -81,14 +81,6 @@ def next_cmd(
 
     lines.append("")
     lines.append(f"→ {rec.reasoning}")
-    if rec.action == "add_weight":
-        lines.append(f"   Målvekt: {rec.target_weight_kg} kg × {rec.target_reps}+ reps")
-    elif rec.action == "add_reps":
-        if rec.target_weight_kg:
-            lines.append(f"   Samme vekt ({rec.target_weight_kg} kg), sikt mot "
-                         f"{rec.target_reps} reps")
-        else:
-            lines.append(f"   Bodyweight, sikt mot {rec.target_reps} reps")
 
     emit(payload, as_json=False, text="\n".join(lines) + "\n")
 

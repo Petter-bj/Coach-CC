@@ -103,13 +103,15 @@ def next_set_for_exercise(
 
     # reps < rep_max → samme vekt, push +1 rep
     target = min(reps + 1, rep_max)
+    next_weight = round(weight + increment_kg, 2)
     return ProgressionRecommendation(
         action="add_reps",
         target_weight_kg=weight,
         target_reps=target,
         reasoning=(
-            f"{reps} reps ved {weight} kg. Behold vekten, sikt mot {target} reps "
-            f"(tak ved {rep_max} → da øker vi til {round(weight + increment_kg, 2)} kg)."
+            f"Sist: {reps} reps ved {weight} kg. Behold {weight} kg, sikt mot "
+            f"{target} reps. Når du lander {rep_max} reps → neste økt blir "
+            f"{next_weight} kg."
         ),
         basis={"last_top_set": last_top_set, "rep_max": rep_max},
     )
