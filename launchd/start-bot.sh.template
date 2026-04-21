@@ -14,6 +14,12 @@ TMUX_BIN="{{TMUX_BIN}}"
 LOG_DIR="$HOME/Library/Logs/Trening"
 PING_TARGET="api.telegram.org"
 
+# Eksplisitt socket-path så socket alltid ligger samme sted uavhengig av
+# om script kjøres fra launchd (TMPDIR=/tmp) eller brukerens shell
+# (TMPDIR=/var/folders/...). Attacht med samme -S flag:
+#   tmux -S /tmp/trening-socket attach -t trening
+TMUX_SOCKET="/tmp/trening-socket"
+
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/bot.start.log"
 
@@ -21,8 +27,8 @@ log() {
     echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $*" >> "$LOG_FILE"
 }
 
-# Sjekk om sesjonen allerede finnes
-if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
+# Sjekk om sesjonen allerede finnes (på vår fikserte socket)
+if "$TMUX_BIN" -S "$TMUX_SOCKET" has-session -t "$SESSION" 2>/dev/null; then
     log "tmux-sesjon '$SESSION' finnes allerede — ingen handling"
     exit 0
 fi
@@ -39,9 +45,9 @@ for i in {1..30}; do
     sleep 2
 done
 
-# Start ny detached sesjon
+# Start ny detached sesjon på fikserte socket
 cd "$REPO"
-"$TMUX_BIN" new-session -d -s "$SESSION" \
+"$TMUX_BIN" -S "$TMUX_SOCKET" new-session -d -s "$SESSION" \
     "$CLAUDE_BIN --channels plugin:telegram@claude-plugins-official"
 
-log "Startet tmux '$SESSION' med Claude Code"
+log "Startet tmux '$SESSION' med Claude Code (socket: $TMUX_SOCKET)"
