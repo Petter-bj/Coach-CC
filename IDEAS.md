@@ -170,106 +170,92 @@ iPhone hotspot. Or a Telegram bot message triggered by Shortcut
 
 ---
 
-## 9. Cold-start onboarding
+## 9. Cold-start onboarding + partial-adoption README
 
+Two related angles for making the repo useful to people who don't have
+all four data sources.
+
+**9a. Interactive onboarding CLI.**
 When someone else clones the repo, the first-time setup is painful
 (4 spike scripts, OAuth dances, env vars). Could build an interactive
-`src.cli.onboard` that walks through each step and verifies as it goes.
-Out of scope for personal use but would make the repo more useful as
-reference.
+`src.cli.onboard` that walks through each step and verifies as it goes:
+- Prompts for each service the user wants to enable
+- Runs the matching spike, handles MFA interactively
+- Verifies credentials landed in the right place
+- Gives clear "skip this step" option for services the user doesn't use
+
+**9b. "Recommended stack" section in README.**
+Today the README assumes you have all four data sources + Hevy Pro +
+Claude Max. That's a lot of commitment for someone just browsing.
+
+Add a tiered stack guide showing how the system degrades gracefully:
+
+| Level | Cost | What you get |
+|---|---|---|
+| **Minimum viable** | Free (Garmin watch + Claude Code) | HRV, sleep, readiness, workouts + morning reports |
+| **+ Withings smart scale** | ~$100 one-time for scale | Weight trends + body composition baselines |
+| **+ Concept2 SkiErg/rower** | Hardware-dependent | Stroke-level erg data for intervals |
+| **+ Yazio (free tier)** | Free | Daily kcal + macro tracking, NO food database |
+| **+ Hevy Pro** | $2.99/mo–$75 lifetime | Structured strength logging with MCP bidirectional control |
+| **+ Claude Max** | $20/mo | Runs the Telegram coaching layer on top of all of it |
+
+Each source class (`src/sources/*`) already handles being skipped —
+the existing `source_stream_state` logic tracks enabled streams
+independently. So "minimum viable" is literally just enabling Garmin in
+`sync.py` `SOURCES = [GarminSource]` and skipping the others.
+
+The README should make this explicit so a reader sees "I can get real
+value from just my Garmin watch" rather than "I need 6 accounts and
+Node.js v24 before this works".
 
 ---
 
-## 10. Replace strength screenshot flow with a direct API integration
+## 10. Scheduled sync source for Hevy → local SQLite
 
-**Concept.** Today's flow: take screenshot in the strength-logging app →
-send to Telegram → Claude vision parses → confirm → `strength log`. It
-works, but is lossy (OCR can misread weights), slow (vision + chat
-round-trip), and requires manual confirmation on every session.
+**Status.** Hevy MCP (bidirectional chat integration) was shipped
+2026-04-21 — Claude can read/write to Hevy during conversations via
+[chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp). Setup is
+documented in README step 7.
 
-An API-based integration would:
-- Eliminate OCR mistakes (structured data, not pixels)
-- Skip the confirmation step for trusted data
-- Unlock richer fields that aren't in a typical screenshot (rest
-  between sets, set-level timestamps, exercise variant/grip, RIR)
-- Run automatically as part of the hourly sync
+**What's still missing.** The MCP is interactive-only — it runs when
+Claude wants a tool, not in the background. To get Hevy workouts into
+the local SQLite for baselines, PRs, volume reports, and dedupe against
+Garmin `indoor_rowing`/Concept2, we need a proper source class that
+runs in the hourly sync.
 
-**Candidate strength-tracking apps.**
+**Implementation sketch.**
 
-| App | API availability | Notes |
-|---|---|---|
-| **Hevy** | Official API (Pro tier) | Clean REST endpoints; `/workouts`, `/exercises` — proven integrations. Most likely target. |
-| **HeavySet** (current app) | No public API | iOS-only; user currently uses this, but is open to switching |
-| **Strong** | No public API | iCloud-only sync; could reverse-engineer CloudKit but fragile |
-| **FitNotes** | No API | Android-only; CSV export works for batch |
-| **MacroFactor Lift** | No API yet | Stronger by Science's companion app; might come eventually |
-| **Liftin** / **Boostcamp** / **SetForge** | Varying | Need to survey |
-
-User is not loyal to HeavySet — switching to Hevy is on the table if the
-API integration saves enough friction to be worth re-learning an app.
-
-**Implementation sketch (assuming Hevy or similar).**
-
-1. New source class `src/sources/hevy.py` (or whichever app wins):
+1. New source class `src/sources/hevy.py`:
    - Stream `workouts` pulls recent sessions via REST
-   - Maps Hevy exercise IDs to our `exercise_muscles.json` canonical
-     names (new mapping table needed — `strength_app_exercise_map`)
-   - Direct insert into `workouts` + `strength_sessions` + `strength_sets`
-     (bypasses the `strength_sessions_pending` table entirely)
+     (https://api.hevyapp.com/v1/workouts)
+   - Stream `events` uses `/workouts/events` for incremental fetch
+     (newer than a cursor, including deletions)
+   - Maps Hevy exercise IDs → canonical names in `exercise_muscles.json`
+     (new table: `hevy_exercise_map(hevy_id, canonical_name)`)
+   - Inserts into `workouts` + `strength_sessions` + `strength_sets`
+     — same tables as xlsx import and screenshot flow
 
-2. Keep screenshot flow as **fallback** for:
-   - Old sessions imported from xlsx or handwritten logs
-   - Days where the user forgot to log digitally
-   - Non-supported apps for anyone using the repo
+2. PR-sanity-check still runs — API can mis-send just as vision can
+   misread (fat-finger weight).
 
-3. PR-sanity-check still runs — API can mis-send just as vision can
-   mis-parse (fat-finger weight). Keep the `--force-pr` path.
+3. Exercise-name mapping: build it incrementally on first import.
+   Prompt user via Telegram: "Hevy exercise 'Bench Press Dumbbell' →
+   map to our canonical `dumbbell_bench_press`?"
 
-4. Exercise-name mapping is the hardest part. Hevy's exercise IDs are
-   stable per user, so mapping can be built incrementally: on first
-   import of each exercise, prompt user "Hevy 'Bench Press Dumbbell' →
-   map to our `dumbbell_bench_press`?"
+4. Dedupe with existing sources: if a Hevy workout overlaps with a
+   Garmin `strength_training` activity on the same day, mark the Garmin
+   row `superseded_by = hevy_workout_id`. Same logic as current
+   Garmin↔Concept2 reconcile.
 
-**Decision still to make.**
-- Does the user want to migrate fully to Hevy (or whichever app) or keep
-  using the current combo of screenshot + xlsx import?
-- Free tier of most APIs is limited — Hevy Pro is ~$5/mo, manageable
-
-**Hybrid flow (probably the right answer).**
-- API handles the common case: "hour after gym, sync picks up session,
-  e1RM updated, no user interaction"
+**Hybrid flow.**
+- Hevy source handles the common case: "hour after gym, sync picks up
+  session, e1RM updated, no user interaction"
 - Screenshot flow reserved for exceptions (travel gym with unfamiliar
   app, handwritten log on paper)
 - Both write to the same canonical `workouts`/`strength_sessions` tables
 
-**Bonus: add Hevy MCP for bidirectional chat integration.**
-
-[chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp) exposes 18 Hevy
-API tools via Model Context Protocol — complementary to the scheduled
-sync source:
-
-- 🔄 **Scheduled sync** (our `src/sources/hevy.py`): Pull workouts into
-  SQLite every hour for reports, baselines, PRs
-- 💬 **MCP** (chrisdoc/hevy-mcp): Let Claude **write** to Hevy from chat
-  — create/update routines, move exercises, scale weights, set up next
-  week's plan. Bidirectional where the source class is read-only.
-
-Example interactions the MCP unlocks:
-- "I'm tired today, replace tomorrow's heavy deadlift with a Z2 skierg"
-  → Claude modifies the routine in Hevy; it shows up on phone/watch
-- "Add 2.5kg to bench next push day" → Claude updates the routine
-  template so the progression sticks
-- "Build me a 6-week hypertrophy block focused on chest and back" →
-  Claude generates routines and organizes them in a folder
-
-Install is a couple of lines in `~/.claude/settings.json` under
-`mcpServers`. Requires same Hevy Pro key as the sync source class, so
-no extra cost.
-
-**Recommended build order once Hevy Pro is active:**
-1. Install chrisdoc/hevy-mcp first — immediate interactive value
-2. Log a couple of weeks of workouts to validate Hevy as the app
-3. Then build `src/sources/hevy.py` for scheduled sync → baselines/PRs
+**Prerequisite.** User should log ~2 weeks in Hevy first to validate
+the app fits, before investing in building the sync source.
 
 ---
 
