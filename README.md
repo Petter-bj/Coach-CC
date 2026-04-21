@@ -11,6 +11,11 @@ SQLite database on a Mac, then exposes narrow CLI commands that Claude
 Code (via the Telegram channel plugin) can call for morning briefings
 and ad-hoc questions.
 
+Optionally integrates with [Hevy](https://hevyapp.com) (strength
+training app) via a bidirectional MCP server, so Claude can also read
+your strength history, log new sessions, and tweak routines directly
+from Telegram.
+
 Code comments and commit history are in Norwegian (written during
 development); the system itself works regardless.
 
@@ -47,6 +52,8 @@ macOS TCC (Transparency, Consent & Control) friction with launchd.
 - `tmux` (`brew install tmux`) — for the auto-start bot
 - Accounts at: Garmin Connect, Withings, Concept2, Yazio
 - Telegram account (for bot) and Claude Max subscription
+- Optional: Hevy account with Pro subscription (for the MCP
+  integration in step 7) and Node.js v24+
 
 ### 2. Install and dependencies
 
@@ -199,6 +206,10 @@ Message your bot:
 - `morning report` → Claude runs `src.cli.report morning`
 - `sleep last week` → `src.cli.sleep_summary --range last_7d`
 - Screenshot of a strength session → Claude parses + logs via `strength log`
+- *(with Hevy MCP)* `log push workout: bench 80kg 4x8, incline db press 30kg 3x10`
+  → Claude pushes it directly into Hevy via the API
+- *(with Hevy MCP)* `add 2.5 kg to bench in my Push routine` → Claude updates
+  the Hevy routine so next session reflects the new target
 
 ### Via terminal
 ```bash
@@ -255,6 +266,11 @@ phrases them in natural language around pre-computed numbers.
 
 Screenshots are stored locally under `~/Library/Caches/Trening/` and
 cleaned up automatically after 30 days.
+
+If you enable the Hevy MCP, Hevy workout data (exercises, sets, reps,
+weights) also flows through Claude when relevant to a conversation.
+The MCP uses your personal Hevy API key and stays on your machine — no
+additional third-party service.
 
 ## Tests
 
