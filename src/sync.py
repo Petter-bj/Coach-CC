@@ -22,16 +22,24 @@ import sys
 from contextlib import contextmanager
 from typing import Iterator
 
+from dotenv import load_dotenv
+
 from src.db.connection import connect
 from src.db.migrations import migrate
-from src.paths import APP_SUPPORT, SYNC_LOCK, ensure_runtime_dirs
+from src.paths import APP_SUPPORT, ENV_FILE, SYNC_LOCK, ensure_runtime_dirs
 from src.analysis.baselines import refresh_baselines
 from src.reconcile import dedupe_workouts
 from src.sources.base import Source
 from src.sources.concept2 import Concept2Source
 from src.sources.garmin import GarminSource
+from src.sources.hevy import HevySource
 from src.sources.withings import WithingsSource
 from src.sources.yazio import YazioSource
+
+# Last .env tidlig — launchd kjører uten shell profile, så vi kan ikke stole
+# på at HEVY_API_KEY / YAZIO_CLIENT_ID ligger i miljøet fra før.
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
 
 MIN_FREE_DISK_MB = 500
 
@@ -69,7 +77,13 @@ def check_disk_space(min_mb: int = MIN_FREE_DISK_MB) -> None:
 
 
 # Registry fylles på etter hvert som kilder implementeres.
-SOURCES: list[type[Source]] = [GarminSource, WithingsSource, Concept2Source, YazioSource]
+SOURCES: list[type[Source]] = [
+    GarminSource,
+    WithingsSource,
+    Concept2Source,
+    YazioSource,
+    HevySource,
+]
 
 
 def run(argv: list[str] | None = None) -> int:

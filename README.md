@@ -6,15 +6,16 @@
 > without warning. Use at your own risk. No support provided.
 
 A personal health and training data system. Automatically pulls from
-Garmin Connect, Withings, Concept2 Logbook, and Yazio into a single local
-SQLite database on a Mac, then exposes narrow CLI commands that Claude
-Code (via the Telegram channel plugin) can call for morning briefings
-and ad-hoc questions.
+Garmin Connect, Withings, Concept2 Logbook, Yazio, and (optionally) Hevy
+into a single local SQLite database on a Mac, then exposes narrow CLI
+commands that Claude Code (via the Telegram channel plugin) can call for
+morning briefings and ad-hoc questions.
 
-Optionally integrates with [Hevy](https://hevyapp.com) (strength
-training app) via a bidirectional MCP server, so Claude can also read
-your strength history, log new sessions, and tweak routines directly
-from Telegram.
+[Hevy](https://hevyapp.com) integration has two layers: scheduled sync
+(strength workouts flow into the local DB for baselines, PRs, volume
+reports, and training-load calculations) and a bidirectional MCP server
+(so Claude can read and write Hevy workouts and routines directly from
+Telegram chat).
 
 Code comments and commit history are in Norwegian (written during
 development); the system itself works regardless.
@@ -28,7 +29,8 @@ python -m src.sync
    ├── Garmin    (HRV, sleep, readiness, activities + FIT samples)
    ├── Withings  (weight + body composition)
    ├── Concept2  (SkiErg sessions + FIT stroke samples)
-   └── Yazio     (kcal + macros per meal)
+   ├── Yazio     (kcal + macros per meal)
+   └── Hevy      (optional — strength workouts + sets + e1RM)
    ↓
 SQLite: ~/Library/Application Support/Trening/health.db
    ↓
@@ -89,6 +91,8 @@ YAZIO_CLIENT_SECRET=...
 
 TELEGRAM_BOT_TOKEN=...         # from @BotFather
 TELEGRAM_ALLOWED_CHAT_IDS=...
+
+HEVY_API_KEY=...               # optional — see step 7
 ```
 
 Developer app registration:
@@ -136,18 +140,25 @@ Verify:
 uv run python -m launchd.install status
 ```
 
-### 7. Optional: Hevy integration (bidirectional, via MCP)
+### 7. Optional: Hevy integration (sync + bidirectional MCP)
 
-If you use [Hevy](https://hevyapp.com) to log strength training, you can
-wire it up as a Model Context Protocol (MCP) server so Claude Code can
-both read your workouts and write new routines/workouts directly from
-chat. Requires Hevy Pro (monthly, yearly, or lifetime).
+If you use [Hevy](https://hevyapp.com) to log strength training, wire
+it up two ways. Both use the same API key. Requires Hevy Pro (monthly,
+yearly, or lifetime).
 
 1. Generate an API key: [hevy.com](https://hevy.com) → Settings →
    Developer / API (Pro-only)
 
-2. Add the MCP server to Claude Code (user scope, so it works in every
-   session, not just this repo):
+2. **Scheduled sync** — add `HEVY_API_KEY=...` to your
+   `~/Library/Application Support/Trening/credentials/.env`. The hourly
+   launchd sync will pull new/edited Hevy workouts into the local DB as
+   canonical `workouts` + `strength_sessions` + `strength_sets` rows,
+   so baselines, PRs, volume reports, and the Acute:Chronic Workload
+   Ratio all reflect your strength training. Backfills the last 180
+   days on first run.
+
+3. **Bidirectional MCP** — adds the Hevy MCP server to Claude Code
+   (user scope, so it works in every session):
 
    ```bash
    claude mcp add hevy -s user -e HEVY_API_KEY=sk_live_your_key -- npx -y hevy-mcp
@@ -155,9 +166,8 @@ chat. Requires Hevy Pro (monthly, yearly, or lifetime).
 
    This uses [chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp),
    which exposes 20 tools (get/create/update workouts, routines,
-   folders, exercise templates, webhooks).
-
-3. Requires Node.js v24+ (`brew install node`).
+   folders, exercise templates, webhooks). Requires Node.js v24+
+   (`brew install node`).
 
 4. Restart the bot session to pick up the new MCP server:
 
@@ -166,16 +176,15 @@ chat. Requires Hevy Pro (monthly, yearly, or lifetime).
    uv run python -m launchd.install kickstart bot
    ```
 
-What this unlocks in Telegram:
-- Ask Claude to show your Hevy workout history
+What the MCP unlocks in Telegram:
 - Log a new session via chat instead of screenshots
 - Tweak tomorrow's routine ("add 2.5 kg to bench", "swap RDL for hip thrust")
 - Generate a full 6-week training block and push it to Hevy as routines
 
-Scheduled sync of Hevy workouts into local SQLite (for baselines, PRs,
-volume reports) is **not yet implemented** — tracked as idea #10 in
-[IDEAS.md](IDEAS.md). For now, Hevy data lives in Hevy; our DB holds
-data from the xlsx import + screenshots.
+Reads can come from either the local DB (scheduled sync, analytics-ready)
+or the MCP (ground-truth from Hevy). CLIs like `last_strength_sessions`,
+`volume`, and `prs` use the local DB; Claude prefers the MCP for
+anything "latest" or when pushing edits back.
 
 ### 8. Optional: Import historical strength log
 

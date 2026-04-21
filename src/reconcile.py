@@ -98,13 +98,67 @@ def _match_score(garmin: dict, concept2: dict) -> float | None:
     return 0.7 * overlap_share + 0.3 * dur_score
 
 
-def dedupe_workouts(conn: sqlite3.Connection) -> int:
-    """Finn overlapp mellom Garmin indoor_rowing og Concept2 skierg/rower.
+# Dedupe strength-logg (xlsx eller chat-screenshot) mot Hevy-sync:
+# Hevy har mest presise data (reps, vekt, RPE, hviletid) og er source of truth.
+# Match-regel: source='strength' og source='hevy' som starter innenfor samme
+# 1-times-vindu — mark strength-raden som superseded_by Hevy-raden.
+STRENGTH_MATCH_WINDOW_MIN = 60
 
-    Marker Garmin-raden med `superseded_by = <concept2_id>`.
+
+def _dedupe_strength_vs_hevy(conn: sqlite3.Connection) -> int:
+    """Finn xlsx/screenshot-styrkerader som duplikerer Hevy-økter."""
+    strength_rows = conn.execute(
+        """
+        SELECT id, started_at_utc, duration_sec
+          FROM workouts
+         WHERE source = 'strength'
+           AND superseded_by IS NULL
+        """
+    ).fetchall()
+
+    if not strength_rows:
+        return 0
+
+    marked = 0
+    for s in strength_rows:
+        s_start = _parse_utc(s["started_at_utc"])
+        window_start = (s_start - timedelta(minutes=STRENGTH_MATCH_WINDOW_MIN)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        window_end = (s_start + timedelta(minutes=STRENGTH_MATCH_WINDOW_MIN)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+        candidate = conn.execute(
+            """
+            SELECT id, started_at_utc
+              FROM workouts
+             WHERE source = 'hevy'
+               AND started_at_utc BETWEEN ? AND ?
+             ORDER BY ABS(strftime('%s', started_at_utc) - strftime('%s', ?))
+             LIMIT 1
+            """,
+            (window_start, window_end, s["started_at_utc"]),
+        ).fetchone()
+
+        if candidate is not None:
+            conn.execute(
+                "UPDATE workouts SET superseded_by = ? WHERE id = ?",
+                (candidate["id"], s["id"]),
+            )
+            marked += 1
+
+    return marked
+
+
+def dedupe_workouts(conn: sqlite3.Connection) -> int:
+    """Finn overlapp mellom Garmin indoor_rowing og Concept2 skierg/rower,
+    og mellom source='strength' og source='hevy'.
+
+    Marker den mindre presise kilden med `superseded_by = <preferred_id>`.
 
     Returns:
-        Antall økter markert som superseded i denne kjøringen.
+        Antall økter markert som superseded i denne kjøringen (begge regler summert).
     """
     # Kandidater: Garmin indoor_rowing uten eksisterende superseded_by
     garmin_rows = conn.execute(
@@ -117,7 +171,9 @@ def dedupe_workouts(conn: sqlite3.Connection) -> int:
         """
     ).fetchall()
 
-    if not garmin_rows:
+    if not garmin_rows and not conn.execute(
+        "SELECT 1 FROM workouts WHERE source='hevy' LIMIT 1"
+    ).fetchone():
         return 0
 
     marked = 0
@@ -156,6 +212,9 @@ def dedupe_workouts(conn: sqlite3.Connection) -> int:
                 (best[1], g["id"]),
             )
             marked += 1
+
+    # Andre regel: strength (xlsx/chat) ↔ hevy
+    marked += _dedupe_strength_vs_hevy(conn)
 
     conn.commit()
     return marked

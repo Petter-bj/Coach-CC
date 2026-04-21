@@ -86,10 +86,14 @@ Hevy MCP tools (call directly, no need to ask):
 - `get-exercise-history`
 - `get-routine-folders`, `create-routine-folder`
 
-**Note:** the scheduled Hevy → SQLite sync source is not built yet (tracked as
-idea #10 in `IDEAS.md`). When the user asks about recent strength data, use the
-MCP. When they say "log this workout", call `create-workout`. Never say
-"Hevy isn't connected" — it IS connected, via MCP.
+**Data flow:** Scheduled sync (`src/sources/hevy.py`) pushes Hevy workouts
+into the local DB hourly, so `last_strength_sessions`, `volume`, `prs`,
+baselines, and the ACR all reflect strength training. CLIs remain the
+source of truth for aggregates. The MCP tools are for (a) **writing**
+(create/update-workout, routines) directly into Hevy, and (b) **reading
+data that hasn't synced yet** (e.g. a workout the user just logged in
+Hevy before the next sync run). Prefer CLIs for historical questions,
+MCP for "log new" and "what just happened".
 
 ## Strength screenshot flow (JSON schema)
 

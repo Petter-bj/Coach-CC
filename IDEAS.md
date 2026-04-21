@@ -210,52 +210,30 @@ Node.js v24 before this works".
 
 ---
 
-## 10. Scheduled sync source for Hevy → local SQLite
+## 10. Scheduled sync source for Hevy → local SQLite ✅ Done 2026-04-21
 
-**Status.** Hevy MCP (bidirectional chat integration) was shipped
-2026-04-21 — Claude can read/write to Hevy during conversations via
-[chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp). Setup is
-documented in README step 7.
+**Shipped** — `src/sources/hevy.py` fetches Hevy workouts via
+`GET /v1/workouts`, 180-day backfill on first run, idempotent on re-run
+(delete-and-insert pattern for sets, mirroring concept2_intervals).
+Workouts land in canonical `workouts` + `strength_sessions` +
+`strength_sets`, so baselines, PRs, volume reports, and ACR all reflect
+Hevy training.
 
-**What's still missing.** The MCP is interactive-only — it runs when
-Claude wants a tool, not in the background. To get Hevy workouts into
-the local SQLite for baselines, PRs, volume reports, and dedupe against
-Garmin `indoor_rowing`/Concept2, we need a proper source class that
-runs in the hourly sync.
+`HEVY_API_KEY` lives in `credentials/.env`; same key MCP uses.
+`src/sync.py` loads `.env` via python-dotenv at start (also fixes the
+lurking issue that Yazio refresh would have failed under launchd).
 
-**Implementation sketch.**
+Migration 002 drops the `workouts.source` CHECK constraint so future
+sources don't require a table rebuild.
 
-1. New source class `src/sources/hevy.py`:
-   - Stream `workouts` pulls recent sessions via REST
-     (https://api.hevyapp.com/v1/workouts)
-   - Stream `events` uses `/workouts/events` for incremental fetch
-     (newer than a cursor, including deletions)
-   - Maps Hevy exercise IDs → canonical names in `exercise_muscles.json`
-     (new table: `hevy_exercise_map(hevy_id, canonical_name)`)
-   - Inserts into `workouts` + `strength_sessions` + `strength_sets`
-     — same tables as xlsx import and screenshot flow
+Reconcile extended: source='strength' (xlsx import + chat-screenshot
+logs) gets `superseded_by` pointed at matching Hevy workout within
+±1 hour. Hevy is canonical going forward.
 
-2. PR-sanity-check still runs — API can mis-send just as vision can
-   misread (fat-finger weight).
-
-3. Exercise-name mapping: build it incrementally on first import.
-   Prompt user via Telegram: "Hevy exercise 'Bench Press Dumbbell' →
-   map to our canonical `dumbbell_bench_press`?"
-
-4. Dedupe with existing sources: if a Hevy workout overlaps with a
-   Garmin `strength_training` activity on the same day, mark the Garmin
-   row `superseded_by = hevy_workout_id`. Same logic as current
-   Garmin↔Concept2 reconcile.
-
-**Hybrid flow.**
-- Hevy source handles the common case: "hour after gym, sync picks up
-  session, e1RM updated, no user interaction"
-- Screenshot flow reserved for exceptions (travel gym with unfamiliar
-  app, handwritten log on paper)
-- Both write to the same canonical `workouts`/`strength_sessions` tables
-
-**Prerequisite.** User should log ~2 weeks in Hevy first to validate
-the app fits, before investing in building the sync source.
+**Still open** — exercise-name normalization. Hevy titles ("Shoulder
+Press (Dumbbell)") are stored as-is in `strength_sets.exercise`. For
+`prs`/baselines to group correctly across free-text variations, build
+an `exercise_aliases` table if needed. Defer until baselines show noise.
 
 ---
 
