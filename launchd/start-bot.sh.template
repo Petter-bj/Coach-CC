@@ -1,16 +1,16 @@
 #!/bin/bash
 # Idempotent starter for Telegram-bot-sesjonen i tmux.
 #
-# Brukes av com.petter.trening.bot.plist. Sjekker om tmux-sesjonen
+# Brukes av com.trening.bot.plist. Sjekker om tmux-sesjonen
 # "trening" allerede finnes — hvis ja, gjør ingenting. Hvis nei,
 # venter på nett og oppretter sesjonen med `claude --channels plugin:telegram@...`.
 
 set -euo pipefail
 
 SESSION="trening"
-REPO="/Users/petter/Documents/Prosjekter/Trening"
-CLAUDE_BIN="/Users/petter/.local/bin/claude"
-TMUX_BIN="/opt/homebrew/bin/tmux"
+REPO="{{REPO}}"
+CLAUDE_BIN="{{CLAUDE_BIN}}"
+TMUX_BIN="{{TMUX_BIN}}"
 LOG_DIR="$HOME/Library/Logs/Trening"
 PING_TARGET="api.telegram.org"
 

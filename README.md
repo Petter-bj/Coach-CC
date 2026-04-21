@@ -59,6 +59,8 @@ CONCEPT2_ACCESS_TOKEN=...      # fra log.concept2.com > Edit Profile > Applicati
 
 YAZIO_EMAIL=...
 YAZIO_PASSWORD=...             # SIWA-brukere må sette passord først (Glemt passord-flow)
+YAZIO_CLIENT_ID=...            # reverse-engineered, se merknad nedenfor
+YAZIO_CLIENT_SECRET=...
 
 TELEGRAM_BOT_TOKEN=...         # fra @BotFather
 TELEGRAM_ALLOWED_CHAT_IDS=...
@@ -67,6 +69,13 @@ TELEGRAM_ALLOWED_CHAT_IDS=...
 Dev-app registrering:
 - Withings: [developer.withings.com](https://developer.withings.com) →
   Create application → Public API Integration → callback `http://localhost:8080/callback`
+
+**Yazio-merknad:** Yazio tilbyr ikke offentlig dev-API. `CLIENT_ID`/`SECRET` er
+felles konstanter som reverse-engineeres fra Yazio-appen. Samme verdier brukes
+av community-klienter som [`dimensi/yazio`](https://github.com/dimensi/yazio)
+og [`juriadams/yazio`](https://github.com/juriadams/yazio); sjekk
+`src/utils/constants.ts` der. Dette bryter teknisk Yazios TOS selv om ingen har
+blitt saksøkt for det — bruk på eget ansvar.
 
 ### 4. Kjør auth-spikes (én gang hver)
 
@@ -92,8 +101,9 @@ uv run python -m launchd.install install
 ```
 
 Jobber lagt til:
-- `com.petter.trening.sync` — kjører ved boot + hver time
-- `com.petter.trening.backup` — kjører kl 03:00 daglig
+- `com.trening.sync` — kjører ved boot + hver time
+- `com.trening.backup` — kjører kl 03:00 daglig
+- `com.trening.bot` — auto-starter Claude Code + Telegram channel i tmux
 
 Verifiser:
 ```bash

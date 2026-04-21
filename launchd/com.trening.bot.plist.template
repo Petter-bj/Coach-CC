@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.petter.trening.bot</string>
+    <string>com.trening.bot</string>
 
     <key>ProgramArguments</key>
     <array>

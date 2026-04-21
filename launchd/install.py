@@ -1,7 +1,8 @@
 """Installer eller fjern launchd-jobber for Trening.
 
-Fyller ut {{PYTHON}}, {{REPO}}, {{LOGS}}-placeholders i .plist.template-filer
-og bootstraper dem i brukerens launchctl-domene.
+Renderer `.plist.template`- og `start-bot.sh.template`-filer ved å fylle
+inn bruker-spesifikke paths ({{PYTHON}}, {{REPO}}, {{HOME}}, {{CLAUDE_BIN}},
+{{TMUX_BIN}} m.fl.) og bootstraper jobbene i brukerens launchctl-domene.
 
 Usage:
     uv run python -m launchd.install install
@@ -13,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,7 +25,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = REPO_ROOT / "launchd"
 INSTALL_DIR = Path.home() / "Library" / "LaunchAgents"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+SCRIPT_DEST_DIR = APP_SUPPORT / "scripts"
+SCRIPT_DEST = SCRIPT_DEST_DIR / "start-bot.sh"
 
+LABEL_PREFIX = "com.trening"
 JOBS = ["sync", "backup", "bot"]
 
 
@@ -35,41 +40,69 @@ def _domain() -> str:
     return f"gui/{_uid()}"
 
 
+def _label(job: str) -> str:
+    return f"{LABEL_PREFIX}.{job}"
+
+
 def _plist_path(job: str) -> Path:
-    return INSTALL_DIR / f"com.petter.trening.{job}.plist"
+    return INSTALL_DIR / f"{_label(job)}.plist"
 
 
 def _template_path(job: str) -> Path:
-    return TEMPLATE_DIR / f"com.petter.trening.{job}.plist.template"
+    return TEMPLATE_DIR / f"{_label(job)}.plist.template"
+
+
+def _find_binary(name: str) -> str:
+    """Bruk `shutil.which` men fall tilbake på vanlige /opt/homebrew-paths
+    siden launchd ikke inheriter brukerens PATH."""
+    located = shutil.which(name)
+    if located:
+        return located
+    for candidate in (
+        f"/opt/homebrew/bin/{name}",
+        f"/usr/local/bin/{name}",
+        f"{Path.home()}/.local/bin/{name}",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    raise FileNotFoundError(f"Fant ikke '{name}' på $PATH eller standard-lokasjoner")
+
+
+def _placeholders() -> dict[str, str]:
+    return {
+        "{{PYTHON}}": str(VENV_PYTHON),
+        "{{REPO}}": str(REPO_ROOT),
+        "{{LOGS}}": str(LOGS),
+        "{{HOME}}": str(Path.home()),
+        "{{APP_SUPPORT}}": str(APP_SUPPORT),
+        "{{CLAUDE_BIN}}": _find_binary("claude"),
+        "{{TMUX_BIN}}": _find_binary("tmux"),
+    }
+
+
+def _render(content: str) -> str:
+    for ph, val in _placeholders().items():
+        content = content.replace(ph, val)
+    return content
 
 
 def _render_template(job: str) -> str:
-    template = _template_path(job).read_text()
-    return (
-        template
-        .replace("{{PYTHON}}", str(VENV_PYTHON))
-        .replace("{{REPO}}", str(REPO_ROOT))
-        .replace("{{LOGS}}", str(LOGS))
-        .replace("{{HOME}}", str(Path.home()))
-        .replace("{{APP_SUPPORT}}", str(APP_SUPPORT))
-    )
+    return _render(_template_path(job).read_text())
 
 
-def _copy_bot_script() -> None:
-    """Kopier start-bot.sh til ~/Library/Application Support/Trening/scripts/.
+def _render_and_install_bot_script() -> None:
+    """Render start-bot.sh.template med bruker-paths og kopier til
+    ~/Library/Application Support/Trening/scripts/start-bot.sh.
 
     macOS TCC blokkerer launchd fra å execve() scripts under ~/Documents/,
-    men Python-binær via symlink til Homebrew er tillatt. Vi må ha scriptet
-    utenfor Documents for å kjøre det fra launchd.
+    så scriptet må leve utenfor Documents/.
     """
-    import shutil
-    src = TEMPLATE_DIR / "start-bot.sh"
-    dest_dir = APP_SUPPORT / "scripts"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / "start-bot.sh"
-    shutil.copy2(src, dest)
-    dest.chmod(0o755)
-    print(f"✓ Kopierte {src.name} → {dest}")
+    template = (TEMPLATE_DIR / "start-bot.sh.template").read_text()
+    rendered = _render(template)
+    SCRIPT_DEST_DIR.mkdir(parents=True, exist_ok=True)
+    SCRIPT_DEST.write_text(rendered)
+    SCRIPT_DEST.chmod(0o755)
+    print(f"✓ Rendret start-bot.sh → {SCRIPT_DEST}")
 
 
 def _run_launchctl(*args: str) -> tuple[int, str]:
@@ -90,8 +123,7 @@ def install() -> int:
     ensure_runtime_dirs()
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Kopier bot-script utenfor Documents/ (TCC-grunner)
-    _copy_bot_script()
+    _render_and_install_bot_script()
 
     for job in JOBS:
         plist = _plist_path(job)
@@ -99,18 +131,18 @@ def install() -> int:
         plist.write_text(content)
         print(f"✓ Skrev {plist}")
 
-        # Bootout hvis allerede lastet (for å re-laste med evt. endret innhold)
+        # Bootout hvis allerede lastet (for re-last med oppdatert innhold)
         _run_launchctl("bootout", _domain(), str(plist))
 
         rc, out = _run_launchctl("bootstrap", _domain(), str(plist))
         if rc == 0:
-            print(f"✓ Bootstrappet com.petter.trening.{job}")
+            print(f"✓ Bootstrappet {_label(job)}")
         else:
             print(f"✗ Bootstrap feilet for {job}: {out}", file=sys.stderr)
             return 1
 
     print("\n✓ Alle jobber installert. Verifiser med:")
-    print(f"    launchctl list | grep com.petter.trening")
+    print(f"    launchctl list | grep {LABEL_PREFIX}")
     return 0
 
 
@@ -127,7 +159,7 @@ def uninstall() -> int:
 
 def status() -> int:
     rc, out = _run_launchctl("list")
-    lines = [ln for ln in out.splitlines() if "com.petter.trening" in ln]
+    lines = [ln for ln in out.splitlines() if LABEL_PREFIX in ln]
     if not lines:
         print("Ingen trening-jobber registrert")
         return 0
@@ -139,9 +171,8 @@ def status() -> int:
 
 def kickstart(job: str) -> int:
     """Tving umiddelbar kjøring av en jobb (nyttig for debug)."""
-    label = f"com.petter.trening.{job}"
-    rc, out = _run_launchctl("kickstart", "-k", f"{_domain()}/{label}")
-    print(out or f"✓ Kickstartet {label}")
+    rc, out = _run_launchctl("kickstart", "-k", f"{_domain()}/{_label(job)}")
+    print(out or f"✓ Kickstartet {_label(job)}")
     return rc
 
 

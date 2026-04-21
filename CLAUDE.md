@@ -169,5 +169,7 @@ Telegram-kanalen.
 
 ## Referanse — plan-dokument
 
-Full plan ligger i `plan-v3.md` i repo-roten. Les denne hvis du trenger å
-forstå arkitektur, schema eller beslutninger utover det som står her.
+Full plan ligger i `~/Library/Application Support/Trening/docs/plan-v3.md`
+(utenfor repoet — holdes privat siden den inneholder brukerspesifikk kontekst).
+Les denne hvis du trenger å forstå arkitektur, schema eller beslutninger
+utover det som står her.

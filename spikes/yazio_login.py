@@ -35,13 +35,12 @@ if ENV_FILE.exists():
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_RAW = REPO_ROOT / "tests" / "fixtures" / "yazio" / "raw"
 
-# Yazio-konstanter hentet fra dimensi/yazio (MIT-lisens, aktivt vedlikeholdt fork
-# av juriadams/yazio fra mars 2026). Yazio har ikke tilbudt self-service dev-
-# registrering, og samme client_id/secret er baked-in i Yazio-appen.
-# dimensi-forken oppgraderte til v20 mars 2026 da v15 ble deprekert.
+# Yazio CLIENT_ID + SECRET leses fra miljøvariabler. Disse er reverse-engineered
+# fra Yazio-appen; se README for hvordan finne verdiene (brukes også av
+# community-klienter som dimensi/yazio).
 BASE_URL = "https://yzapi.yazio.com/v20"
-CLIENT_ID = "1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c"
-CLIENT_SECRET = "6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o"
+CLIENT_ID = os.environ.get("YAZIO_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("YAZIO_CLIENT_SECRET", "")
 
 
 def save_fixture(name: str, data: object) -> None:
@@ -59,6 +58,14 @@ def main() -> int:
     password = os.environ.get("YAZIO_PASSWORD")
     if not email or not password:
         print("ERROR: sett YAZIO_EMAIL og YAZIO_PASSWORD i .env", file=sys.stderr)
+        return 1
+    if not CLIENT_ID or not CLIENT_SECRET:
+        print(
+            "ERROR: sett YAZIO_CLIENT_ID og YAZIO_CLIENT_SECRET i .env.\n"
+            "  Verdiene er felles for alle Yazio-brukere (reverse-engineered\n"
+            "  fra Yazio-appen). Se README for hvordan finne dem.",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"Logger inn på Yazio som {email}...")

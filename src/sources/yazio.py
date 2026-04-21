@@ -12,6 +12,7 @@ er samme som Yazio-appen bruker; ingen self-service dev-registrering finnes.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -24,8 +25,27 @@ from src.sources.base import FatalError, RetryableError, Source, upsert_row
 
 BASE_URL = "https://yzapi.yazio.com/v20"
 TOKEN_URL = f"{BASE_URL}/oauth/token"
-CLIENT_ID = "1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c"
-CLIENT_SECRET = "6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o"
+
+# Yazio CLIENT_ID + SECRET må settes som env vars. Disse er reverse-engineered
+# fra Yazio-appen og publiseres ikke her. Se README for hvordan du finner dem
+# (felles konstanter brukt av community-klienter som dimensi/yazio).
+def _client_id() -> str:
+    cid = os.environ.get("YAZIO_CLIENT_ID")
+    if not cid:
+        raise FatalError(
+            "Mangler YAZIO_CLIENT_ID i env. Se README for hvordan finne verdien."
+        )
+    return cid
+
+
+def _client_secret() -> str:
+    cs = os.environ.get("YAZIO_CLIENT_SECRET")
+    if not cs:
+        raise FatalError(
+            "Mangler YAZIO_CLIENT_SECRET i env. Se README for hvordan finne verdien."
+        )
+    return cs
+
 
 REFRESH_MARGIN_SEC = 300
 
@@ -144,8 +164,8 @@ def _refresh(creds: dict) -> dict:
         resp = httpx.post(
             TOKEN_URL,
             json={
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
+                "client_id": _client_id(),
+                "client_secret": _client_secret(),
                 "grant_type": "refresh_token",
                 "refresh_token": creds["refresh_token"],
             },
