@@ -700,47 +700,52 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
                 "Lytt til kropp — ikke struktur.",
             ],
         )
-    # base eller None → Bakken-konsistent: sub-threshold arbeid uansett modus,
-    # ingen VO2max-stimulus. Cross-training erstatter løp-Z3 når tissue ikke
-    # tolererer det, men cross-training går IKKE over threshold bare fordi det
-    # er cross-training.
+    # base eller None — IMPORTANT nyanse:
+    # Bakken-base generelt er Z3-HEAVY (sub-threshold 2-3 mmol er *definerende*
+    # for fasen, ~4 sub-threshold-økter/uke i elite-versjonen, 2-3 i amatør-
+    # Singles-versjonen). Det som ekskluderes er Z4+ (over-threshold / VO2max).
+    #
+    # Men denne PhaseGuidance defaulter konservativt: `should_recommend_run_z3
+    # = False`. Det er fordi default-bruken er en REBUILD-base (skade- eller
+    # detraining-restart) der løpe-Z3 er tissue-gated. En sunn, trent løper i
+    # full Bakken-base skal ha run-Z3.
+    #
+    # Signal-gatene som åpner run-Z3 (håndteres av caller, ikke denne):
+    #   - Ingen aktive shin splints / kne / leggrelaterte skader
+    #   - Løpevolum ≥ 30 km/uke stabilt i 2+ uker
+    #   - Ingen volum-ramp > 15% siste uke
     return PhaseGuidance(
         phase="base",
-        focus="sub-threshold-arbeid uansett modus, løp-volum-toleranse, aerob base",
-        run_intensity_cap_zone="Z2",
-        should_recommend_run_z3=False,
-        should_recommend_run_hard_intervals=False,
+        focus="sub-threshold-arbeid som kjerne-stimulus, aerob base, volum-toleranse",
+        run_intensity_cap_zone="Z2",  # default for rebuild-base; caller kan oppgradere
+        should_recommend_run_z3=False,  # default konservativt; true for sunn base
+        should_recommend_run_hard_intervals=False,  # Z5-løping venter til build
         allow_neuromuscular_work=True,
         allow_progression_runs=True,
         allow_long_runs_over_16km=False,
-        # Cross-training Z3 (sub-threshold) erstatter løp-Z3 når tissue
-        # ikke tolererer. Men Z4-Z5 (over-threshold / VO2max) hører i build,
-        # uansett modus — sentral fatigue er sentral fatigue.
         cross_training_intensity_cap_zone="Z3",
         should_recommend_cross_training_z3=True,
         should_recommend_cross_training_hard_intervals=False,
         volume_ramp_pct_per_week_max=0.10,
         strength_modulation="normal",
         notes=[
-            "Løping: volum-toleranse + aerob base. Ingen rene Z3-intervaller enda "
-            "(tissue-gated pga skade-historikk). Strides OK, progressive runs OK.",
-            "Cross-training (SkiErg, sykkel): Z3 sub-threshold-intervaller OK — "
-            "dette erstatter løp-Z3 som base-fase sub-threshold-stimulus. "
-            "Sample: 3×10 min eller 5×6 min @ 82–87% HRmax, kontrollert.",
-            "Sustained Z4-Z5 (over-threshold intervaller ≥ 30 sek hard) hører "
-            "i build, IKKE base — uansett modus. Bakken holder sub-threshold "
-            "uansett modus i base. Sentral fatigue er sentral fatigue.",
-            "VIKTIG nyanse: 'Ingen Z4-Z5 i base' gjelder SUSTAINED arbeid. "
+            "Bakken-base er Z3-TUNG generelt: sub-threshold (2-3 mmol, 82-87% "
+            "HRmax) er *definerende* stimulus. 2-3 økter/uke i amatør-versjonen.",
+            "Men default i denne koden er REBUILD-base: run-Z3 blokkert fordi "
+            "skade-historikk (shin splints) / nylig lavt volum gjør det usikkert. "
+            "Z3-stimulusen flyttes midlertidig til cross-training (SkiErg, sykkel).",
+            "Caller (bot) skal oppgradere run-Z3 til True når ALLE: (a) ingen "
+            "aktive løpe-skader, (b) løpevolum ≥ 30 km/uke stabilt, (c) ingen "
+            "volum-spike siste uke. Da er det 'late base' med full Bakken-profil.",
+            "Sustained Z4-Z5 (over-threshold intervaller ≥ 30 sek hard) hører i "
+            "build, IKKE base — uansett modus. Bakken holder sub-threshold "
+            "uansett modus.",
             "Korte bursts (<30 sek) som briefly spiker til Z4-Z5 er OK og "
-            "anbefalt — de er neuromuskulære, ikke aerobe. Derfor har base-fasen "
-            "`allow_neuromuscular_work = True`. Strides 4–6×15–30s submax, og "
-            "når shin er stabilt: X-element 10×200m eller hill sprints.",
-            "1 sub-threshold cross-training-økt per uke er minimum, 2 er OK når "
-            "volum-ramp er stabil.",
-            "Volum-progresjon løping maks +10%/uke. Strengere hvis shin splints-historikk.",
-            "Når løpevolum stabiliserer seg ≥ 30 km/uke OG ingen aktive "
-            "shin-symptomer → kan introdusere én kontrollert Z3-løpeøkt/uke "
-            "('late base' — overgang til build).",
+            "anbefalt — neuromuskulære, ikke aerobe. Strides 4–6×15–30s submax. "
+            "Når shin stabil: X-element 10×200m eller hill sprints.",
+            "Progressive runs OK (easy → svak Z3-drift siste 5–10 min av langtur) "
+            "når volum er stabilt og shin er rolig.",
+            "Volum-progresjon løping maks +10%/uke (strengere hvis skade-risiko).",
             "Styrke: normal progresjon — base-fase konflikter ikke med tunge løft.",
         ],
     )
