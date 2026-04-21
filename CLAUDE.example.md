@@ -71,6 +71,26 @@ Time ranges: `--range last_7d | last_30d | week_of=YYYY-MM-DD`.
 - `volume --range last_7d`
 - `prs [--exercise '...']`
 
+### Hevy MCP (direct API access)
+
+When the user asks about strength workouts, routines, or exercises, **prefer
+the Hevy MCP** over the local DB. Hevy data is fresher and more precise; the
+local DB only holds what was imported from the xlsx backfill or logged via the
+screenshot flow.
+
+Hevy MCP tools (call directly, no need to ask):
+- `get-workouts`, `get-workout`, `get-workout-count`, `get-workout-events`
+- `create-workout`, `update-workout`
+- `get-routines`, `create-routine`, `update-routine`
+- `get-exercise-templates`, `search-exercise-templates`, `create-exercise-template`
+- `get-exercise-history`
+- `get-routine-folders`, `create-routine-folder`
+
+**Note:** the scheduled Hevy → SQLite sync source is not built yet (tracked as
+idea #10 in `IDEAS.md`). When the user asks about recent strength data, use the
+MCP. When they say "log this workout", call `create-workout`. Never say
+"Hevy isn't connected" — it IS connected, via MCP.
+
 ## Strength screenshot flow (JSON schema)
 
 When the user sends a screenshot of a strength session:
