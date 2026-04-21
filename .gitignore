@@ -19,6 +19,9 @@ credentials/
 # CLAUDE.example.md er canonical/tracked template; kopier den og tilpass.
 CLAUDE.md
 
+# Claude Code per-repo settings (bot-mode, lokal tilpasning)
+.claude/settings.local.json
+
 # macOS
 .DS_Store
 
