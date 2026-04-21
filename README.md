@@ -28,6 +28,9 @@ python -m src.sync
 SQLite: ~/Library/Application Support/Trening/health.db
    ↓
 src/cli/*  (status, sleep_summary, report morning/weekly, strength log, ...)
+   ↓                       ↑
+   ↓        Hevy MCP ──────┘  (optional, bidirectional: read + write
+   ↓                           strength workouts and routines)
    ↓
 Claude Code session with Telegram channel plugin → user
 ```
@@ -124,13 +127,54 @@ Verify:
 uv run python -m launchd.install status
 ```
 
-### 7. Optional: Import historical strength log
+### 7. Optional: Hevy integration (bidirectional, via MCP)
+
+If you use [Hevy](https://hevyapp.com) to log strength training, you can
+wire it up as a Model Context Protocol (MCP) server so Claude Code can
+both read your workouts and write new routines/workouts directly from
+chat. Requires Hevy Pro (monthly, yearly, or lifetime).
+
+1. Generate an API key: [hevy.com](https://hevy.com) → Settings →
+   Developer / API (Pro-only)
+
+2. Add the MCP server to Claude Code (user scope, so it works in every
+   session, not just this repo):
+
+   ```bash
+   claude mcp add hevy -s user -e HEVY_API_KEY=sk_live_your_key -- npx -y hevy-mcp
+   ```
+
+   This uses [chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp),
+   which exposes 20 tools (get/create/update workouts, routines,
+   folders, exercise templates, webhooks).
+
+3. Requires Node.js v24+ (`brew install node`).
+
+4. Restart the bot session to pick up the new MCP server:
+
+   ```bash
+   pkill -9 tmux && rm -rf /tmp/trening-socket
+   uv run python -m launchd.install kickstart bot
+   ```
+
+What this unlocks in Telegram:
+- Ask Claude to show your Hevy workout history
+- Log a new session via chat instead of screenshots
+- Tweak tomorrow's routine ("add 2.5 kg to bench", "swap RDL for hip thrust")
+- Generate a full 6-week training block and push it to Hevy as routines
+
+Scheduled sync of Hevy workouts into local SQLite (for baselines, PRs,
+volume reports) is **not yet implemented** — tracked as idea #10 in
+[IDEAS.md](IDEAS.md). For now, Hevy data lives in Hevy; our DB holds
+data from the xlsx import + screenshots.
+
+### 8. Optional: Import historical strength log
 
 ```bash
 uv run python spikes/import_strength_xlsx.py path/to/log.xlsx
 ```
 
-### 8. Claude Code + Telegram channel
+### 9. Claude Code + Telegram channel
 
 ```bash
 # Start a BotFather bot on Telegram first (@BotFather → /newbot)
