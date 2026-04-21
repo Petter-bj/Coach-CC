@@ -51,6 +51,9 @@ macOS TCC (Transparency, Consent & Control) friction with launchd.
 git clone <repo-url>
 cd Trening
 uv sync
+
+# Create your local CLAUDE.md from the template (gitignored — customize freely)
+cp CLAUDE.example.md CLAUDE.md
 ```
 
 ### 3. Credentials
