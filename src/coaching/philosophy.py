@@ -741,9 +741,16 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             "Caller (bot) skal oppgradere run-Z3 til True når ALLE: (a) ingen "
             "aktive løpe-skader, (b) løpevolum ≥ 30 km/uke stabilt, (c) ingen "
             "volum-spike siste uke. Da er det 'late base' med full Bakken-profil.",
-            "Sustained Z4-Z5 (over-threshold intervaller ≥ 30 sek hard) hører i "
-            "build, IKKE base — uansett modus. Bakken holder sub-threshold "
-            "uansett modus.",
+            "CROSS-TRAINING hard (Z4-Z5) er volum-tier-avhengig i base: "
+            "Ved HØYT volum (>= 55 km/uke løp): Bakken-pyramidal — Z4-Z5 venter "
+            "til build, kun sub-threshold stimulus nå. "
+            "Ved LOW/MODERATE volum (< 55 km/uke): polarisert hybrid — 1 hard "
+            "cross-training-økt/uke (Z4-Z5) er appropriat stimulus fordi løpe-"
+            "volumet alene ikke bærer nok aerob belastning. Caller (bot) kan "
+            "oppgradere `should_recommend_cross_training_hard_intervals` til "
+            "True når løpevolum < 55 km/uke og ingen overlast-signal.",
+            "Sustained Z4-Z5 LØPING venter uansett til build — tissue stress, "
+            "ikke CV-stress, er regulerende der. Uansett volum-tier.",
             "Korte bursts (<30 sek) som briefly spiker til Z4-Z5 er OK og "
             "anbefalt — neuromuskulære, ikke aerobe. Strides 4–6×15–30s submax. "
             "Når shin stabil: X-element 10×200m eller hill sprints.",

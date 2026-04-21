@@ -113,22 +113,23 @@ def test_base_phase_no_run_z3_ramp_conservative() -> None:
     assert g.volume_ramp_pct_per_week_max == 0.10
 
 
-def test_base_phase_allows_cross_training_z3_not_hard() -> None:
-    """Bakken-konsistent: sub-threshold (Z3) på cross-training erstatter
-    løp-Z3 i base, men over-threshold (Z4-Z5) venter til build uansett modus.
+def test_base_phase_default_conservative_cross_training() -> None:
+    """Default er konservativ — Bakken-pyramidal (passer høy-volum base).
 
-    Sentral fatigue er sentral fatigue — SkiErg Z5 er ikke 'gratis.'
+    Men notes skal dokumentere at dette er volum-tier-avhengig:
+    ved lavt volum (< 55 km/uke) skal caller oppgradere hard_intervals
+    til True (polarisert hybrid).
     """
     g = phase_guidance("base")
-    # Z3 YES — erstatter løp-Z3
+    # Default: Z3 YES, hard NO, cap Z3
     assert g.should_recommend_cross_training_z3 is True
-    # Z4-Z5 NO — over-threshold hører i build, uansett modus
     assert g.should_recommend_cross_training_hard_intervals is False
     assert g.cross_training_intensity_cap_zone == "Z3"
-    # Dokumentert i notes
+    # Notes skal nevne volum-tier som overstyrings-trigger
     joined = " ".join(g.notes).lower()
     assert "sub-threshold" in joined or "sub threshold" in joined
-    assert "vo2max" in joined or "over-threshold" in joined
+    assert "polarisert" in joined or "polarized" in joined
+    assert "volum-tier" in joined or "volum tier" in joined
 
 
 def test_base_phase_allows_neuromuscular_and_progression() -> None:
