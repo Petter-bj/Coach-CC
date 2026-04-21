@@ -180,7 +180,71 @@ reference.
 
 ---
 
-## 10. Independent Telegram alerter (decoupled from Claude Code)
+## 10. Replace strength screenshot flow with a direct API integration
+
+**Concept.** Today's flow: take screenshot in the strength-logging app →
+send to Telegram → Claude vision parses → confirm → `strength log`. It
+works, but is lossy (OCR can misread weights), slow (vision + chat
+round-trip), and requires manual confirmation on every session.
+
+An API-based integration would:
+- Eliminate OCR mistakes (structured data, not pixels)
+- Skip the confirmation step for trusted data
+- Unlock richer fields that aren't in a typical screenshot (rest
+  between sets, set-level timestamps, exercise variant/grip, RIR)
+- Run automatically as part of the hourly sync
+
+**Candidate strength-tracking apps.**
+
+| App | API availability | Notes |
+|---|---|---|
+| **Hevy** | Official API (Pro tier) | Clean REST endpoints; `/workouts`, `/exercises` — proven integrations. Most likely target. |
+| **HeavySet** (current app) | No public API | iOS-only; user currently uses this, but is open to switching |
+| **Strong** | No public API | iCloud-only sync; could reverse-engineer CloudKit but fragile |
+| **FitNotes** | No API | Android-only; CSV export works for batch |
+| **MacroFactor Lift** | No API yet | Stronger by Science's companion app; might come eventually |
+| **Liftin** / **Boostcamp** / **SetForge** | Varying | Need to survey |
+
+User is not loyal to HeavySet — switching to Hevy is on the table if the
+API integration saves enough friction to be worth re-learning an app.
+
+**Implementation sketch (assuming Hevy or similar).**
+
+1. New source class `src/sources/hevy.py` (or whichever app wins):
+   - Stream `workouts` pulls recent sessions via REST
+   - Maps Hevy exercise IDs to our `exercise_muscles.json` canonical
+     names (new mapping table needed — `strength_app_exercise_map`)
+   - Direct insert into `workouts` + `strength_sessions` + `strength_sets`
+     (bypasses the `strength_sessions_pending` table entirely)
+
+2. Keep screenshot flow as **fallback** for:
+   - Old sessions imported from xlsx or handwritten logs
+   - Days where the user forgot to log digitally
+   - Non-supported apps for anyone using the repo
+
+3. PR-sanity-check still runs — API can mis-send just as vision can
+   mis-parse (fat-finger weight). Keep the `--force-pr` path.
+
+4. Exercise-name mapping is the hardest part. Hevy's exercise IDs are
+   stable per user, so mapping can be built incrementally: on first
+   import of each exercise, prompt user "Hevy 'Bench Press Dumbbell' →
+   map to our `dumbbell_bench_press`?"
+
+**Decision still to make.**
+- Does the user want to migrate fully to Hevy (or whichever app) or keep
+  using the current combo of screenshot + xlsx import?
+- Free tier of most APIs is limited — Hevy Pro is ~$5/mo, manageable
+
+**Hybrid flow (probably the right answer).**
+- API handles the common case: "hour after gym, sync picks up session,
+  e1RM updated, no user interaction"
+- Screenshot flow reserved for exceptions (travel gym with unfamiliar
+  app, handwritten log on paper)
+- Both write to the same canonical `workouts`/`strength_sessions` tables
+
+---
+
+## 11. Independent Telegram alerter (decoupled from Claude Code)
 
 Small Python script + launchd plist that polls `alerts` table every 5
 min and sends plain Telegram messages via Bot API when unacknowledged
