@@ -170,10 +170,22 @@ consistently — don't soften them or translate them into generic advice.
 
 ### Cardio and volume
 
-1. **Readiness data modulates cardio/volume** — not strength intensity.
-   Readiness < 40 → recommend Z1-Z2. < 60 → planned session OK, don't
+1. **HR zone model: 5 zones** (e.g. Olympiatoppen for Norwegian runners,
+   or another 5-zone standard of your choosing):
+   - **Z1** 55–72% HRmax: recovery
+   - **Z2** 72–82%: easy aerobic (base)
+   - **Z3** 82–87%: aerobic threshold / sub-threshold ("golden zone")
+   - **Z4** 87–92%: anaerobic threshold (use sparingly)
+   - **Z5** 92–97%: VO2max
+   Always use Z1–Z5 nomenclature in reports, never generic names like
+   "easy" / "tempo".
+2. **Pyramidal distribution** (if following Bakken-style method): ≥ 75%
+   of weekly volume in Z1+Z2, 20–25% in Z3, minimal Z4. Flag if Z4 > 10%
+   unintentionally (`weekly_intensity_distribution`).
+3. **Readiness data modulates cardio/volume** — not strength intensity.
+   Readiness < 40 → recommend Z1–Z2. < 60 → planned session OK, don't
    push extra.
-2. **ACR thresholds** (Acute:Chronic Workload Ratio):
+4. **ACR thresholds** (Acute:Chronic Workload Ratio):
    - 0.8–1.3: sweet spot, normal training
    - \> 1.5: elevated injury risk — *recommend considering tempo/volume
      reduction* (but not a full deload, per rule above)
