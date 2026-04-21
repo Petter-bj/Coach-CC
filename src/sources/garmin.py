@@ -266,13 +266,16 @@ def _dates_in_range(since_date: str, until: date | None = None) -> Iterator[str]
 class GarminSource(Source):
     def __post_init__(self) -> None:
         self.name = "garmin"
-        self.streams = ["daily", "sleep", "hrv", "activities", "fit_samples"]
+        self.streams = [
+            "daily", "sleep", "hrv", "activities", "fit_samples", "profile",
+        ]
         self.backfill_days = {
             "daily": 14,
             "sleep": 7,
             "hrv": 14,
             "activities": 30,
             "fit_samples": 30,
+            "profile": 1,  # billig kall; ok å kjøre hver time
         }
         self._client = None
 
@@ -313,6 +316,8 @@ class GarminSource(Source):
             return self._fetch_activities(conn, since_date)
         if stream == "fit_samples":
             return self._fetch_fit_samples(conn)
+        if stream == "profile":
+            return self._fetch_profile(conn)
         raise ValueError(f"Ukjent Garmin-strøm: {stream}")
 
     # -------------------------------------------------------------
@@ -411,6 +416,65 @@ class GarminSource(Source):
     # -------------------------------------------------------------
     # FIT samples: last ned manglende FIT, parse, insert workout_samples
     # -------------------------------------------------------------
+    # -------------------------------------------------------------
+    # Profile (HRmax, lactate threshold, VO2max, vekt, høyde)
+    # -------------------------------------------------------------
+    def _fetch_profile(self, conn) -> tuple[int, int]:
+        """Hent Garmins bruker-profil og sync til `user_preferences`-tabell.
+
+        Lagrer Garmin-verdier under `*_garmin`-suffikset så brukerens egne
+        overstyringer (f.eks. `hr_max` satt manuelt) aldri blir overskrevet.
+        `src.coaching.preferences.get_hr_max(conn)` leser user-override først,
+        faller tilbake til Garmin-verdi.
+        """
+        from src.coaching.preferences import get_pref, set_pref
+
+        try:
+            zones = self._safe(self.client.connectapi, "/biometric-service/heartRateZones")
+            profile = self._safe(self.client.get_user_profile)
+        except (RetryableError, FatalError):
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise RetryableError(f"Garmin profile fetch: {e}") from e
+
+        user_data = (profile or {}).get("userData") or {}
+
+        # Pull verdier med fallback
+        max_hr = None
+        lt_hr = None
+        if zones and isinstance(zones, list) and zones:
+            z0 = zones[0]
+            max_hr = z0.get("maxHeartRateUsed")
+            lt_hr = z0.get("lactateThresholdHeartRateUsed")
+        if not lt_hr:
+            lt_hr = user_data.get("lactateThresholdHeartRate")
+
+        vo2max = user_data.get("vo2MaxRunning")
+        weight_g = user_data.get("weight")  # i gram
+        weight_kg = round(weight_g / 1000.0, 1) if weight_g else None
+        height_cm = user_data.get("height")
+
+        # Map → prefs keys. Alle bruker `_garmin`-suffiks.
+        updates: dict[str, str] = {}
+        if max_hr:
+            updates["hr_max_garmin"] = str(int(max_hr))
+        if lt_hr:
+            updates["hr_lactate_threshold_garmin"] = str(int(lt_hr))
+        if vo2max:
+            updates["vo2max_running_garmin"] = str(vo2max)
+        if weight_kg:
+            updates["weight_kg_garmin"] = str(weight_kg)
+        if height_cm:
+            updates["height_cm_garmin"] = str(int(height_cm))
+
+        changed = 0
+        for k, v in updates.items():
+            if get_pref(conn, k) != v:
+                set_pref(conn, k, v)
+                changed += 1
+
+        return 0, changed
+
     def _fetch_fit_samples(self, conn) -> tuple[int, int]:
         missing = conn.execute(
             """

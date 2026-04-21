@@ -46,6 +46,21 @@ def _validate(key: str, value: str) -> None:
                 raise ValueError
         except ValueError:
             raise typer.BadParameter(f"{key} må være positiv float ≤ 50")
+    if key in ("hr_max", "hr_lactate_threshold"):
+        try:
+            v = int(value)
+            if v < 100 or v > 230:
+                raise ValueError
+        except ValueError:
+            raise typer.BadParameter(f"{key} må være heltall 100-230 (bpm)")
+    if key == "weight_kg":
+        try:
+            v = float(value)
+            if v < 30 or v > 200:
+                raise ValueError
+        except ValueError:
+            raise typer.BadParameter("weight_kg må være float 30-200")
+    # Andre nøkler (inkl. *_garmin-synk'ede) godtas uten validering
 
 
 @app.command("list")

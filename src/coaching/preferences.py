@@ -70,6 +70,45 @@ def training_priority(conn: sqlite3.Connection) -> str:
     return get_pref(conn, "training_priority") or "cardio"
 
 
+def _pref_int_with_fallback(
+    conn: sqlite3.Connection, primary_key: str, fallback_key: str,
+) -> int | None:
+    """Les primary_key først, fall tilbake til fallback_key. Returner int eller None."""
+    v = get_pref(conn, primary_key) or get_pref(conn, fallback_key)
+    if not v:
+        return None
+    try:
+        return int(float(v))
+    except ValueError:
+        return None
+
+
+def get_hr_max(conn: sqlite3.Connection) -> int | None:
+    """Hent HRmax — user-override har forrang, ellers Garmin-synket verdi.
+
+    Setter du `hr_max` manuelt via `prefs set hr_max 200`, brukes det. Ellers
+    leses `hr_max_garmin` som skrives av Garmin-source sin `profile`-stream.
+    """
+    return _pref_int_with_fallback(conn, "hr_max", "hr_max_garmin")
+
+
+def get_lactate_threshold_hr(conn: sqlite3.Connection) -> int | None:
+    """Hent laktat-terskel HR — user-override først, Garmin ellers."""
+    return _pref_int_with_fallback(
+        conn, "hr_lactate_threshold", "hr_lactate_threshold_garmin",
+    )
+
+
+def get_weight_kg(conn: sqlite3.Connection) -> float | None:
+    v = get_pref(conn, "weight_kg") or get_pref(conn, "weight_kg_garmin")
+    if not v:
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # exercise_preferences (per øvelse)
 # ---------------------------------------------------------------------------
