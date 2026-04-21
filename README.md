@@ -51,7 +51,9 @@ macOS TCC (Transparency, Consent & Control) friction with launchd.
 - [`uv`](https://github.com/astral-sh/uv) (`brew install uv`)
 - `tmux` (`brew install tmux`) — for the auto-start bot
 - Accounts at: Garmin Connect, Withings, Concept2, Yazio
-- Telegram account (for bot) and Claude Max subscription
+- Telegram account (for bot) and a Claude Pro or Max subscription
+  (Pro works for light daily use; Max gives more headroom if you chat
+  a lot with the bot)
 - Optional: Hevy account with Pro subscription (for the MCP
   integration in step 7) and Node.js v24+
 
