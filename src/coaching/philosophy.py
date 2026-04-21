@@ -585,8 +585,10 @@ class PhaseGuidance:
     run_intensity_cap_zone: str  # høyeste tillatte løpe-sone rutinemessig
     volume_ramp_pct_per_week_max: float
     strength_modulation: str  # "normal" | "reduced" | "minimal"
-    should_recommend_z3: bool  # om Z3-økter er aktuelle denne fasen
-    should_recommend_hard_intervals: bool  # Z5-intervaller aktuelt?
+    should_recommend_z3: bool  # om rene Z3-intervaller er aktuelle (5×6 min etc)
+    should_recommend_hard_intervals: bool  # Z5/VO2max-intervaller
+    allow_neuromuscular_work: bool  # strides, korte accelerasjoner (ikke lactate-stress)
+    allow_progression_runs: bool  # easy → svak Z3-drift siste 5-10 min
     allow_long_runs_over_16km: bool
     notes: list[str]  # ekstra kontekst for boten
 
@@ -611,6 +613,8 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             strength_modulation="reduced",
             should_recommend_z3=True,
             should_recommend_hard_intervals=True,
+            allow_neuromuscular_work=True,
+            allow_progression_runs=True,
             allow_long_runs_over_16km=True,
             notes=[
                 "Z3-volum skal være 20–25% av ukesvolumet i build.",
@@ -627,6 +631,8 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             strength_modulation="minimal",
             should_recommend_z3=True,
             should_recommend_hard_intervals=True,
+            allow_neuromuscular_work=True,
+            allow_progression_runs=True,
             allow_long_runs_over_16km=True,
             notes=[
                 "Hold volum konstant eller svakt fallende.",
@@ -643,10 +649,13 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             strength_modulation="minimal",
             should_recommend_z3=True,
             should_recommend_hard_intervals=True,
+            allow_neuromuscular_work=True,  # strides holder på skarphet
+            allow_progression_runs=False,  # unngå nye stimuli
             allow_long_runs_over_16km=False,
             notes=[
                 "Negative taper: korte race-pace-biter, lite volum.",
                 "Ingen nye stimuli, ingen tunge løft.",
+                "Strides 2–3×/uke holder på neural sharpness.",
                 "Søvn + hydrering + fueling er jobben.",
             ],
         )
@@ -659,6 +668,8 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
             strength_modulation="reduced",
             should_recommend_z3=False,
             should_recommend_hard_intervals=False,
+            allow_neuromuscular_work=False,  # kroppen skal hvile
+            allow_progression_runs=False,
             allow_long_runs_over_16km=False,
             notes=[
                 "Ingen harde økter på minst 7–10 dager etter race.",
@@ -675,11 +686,20 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
         strength_modulation="normal",
         should_recommend_z3=False,
         should_recommend_hard_intervals=False,
+        allow_neuromuscular_work=True,
+        allow_progression_runs=True,
         allow_long_runs_over_16km=False,
         notes=[
-            "Hovedmål: bygge aerob base og volum-toleranse. Ingen Z3-ramp.",
+            "Hovedmål: bygge aerob base og volum-toleranse. Ingen rene Z3-intervaller enda.",
             "Volum-progresjon maks +10%/uke (strengere hvis shin splints-historikk).",
-            "Én enkelt sub-threshold-økt/uke er OK som stimulus, ikke mer.",
+            "Strides 1–2×/uke på slutten av easy-run (4–6 × 15–30s submax) OK — "
+            "gir neuromuskulær stimulus uten lactate-stress. Flate strides, "
+            "ikke hill sprints, pga shin splints-sensitivitet.",
+            "Progressive runs OK (easy → svak Z3-drift siste 5–10 min) når volum "
+            "er stabilt og shin er rolig — gir smak av Z3 uten full interval-stress.",
+            "Når ukesvolum stabiliserer seg ≥ 30 km/uke OG ingen aktiv shin "
+            "splints: kan introdusere én kontrollert Z3-økt/uke. Da går vi inn "
+            "i 'late base' som overgang til build.",
             "Styrke: normal progresjon — base-fase konflikter ikke med tunge løft.",
         ],
     )

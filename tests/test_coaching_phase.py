@@ -113,6 +113,17 @@ def test_base_phase_no_z3_ramp_conservative() -> None:
     assert g.volume_ramp_pct_per_week_max == 0.10
 
 
+def test_base_phase_allows_neuromuscular_and_progression() -> None:
+    """Base er ikke bare Z2 monotoni — strides og progressive runs er OK."""
+    g = phase_guidance("base")
+    assert g.allow_neuromuscular_work is True
+    assert g.allow_progression_runs is True
+    # Dokumentert i notes slik at boten forklarer det riktig
+    joined = " ".join(g.notes).lower()
+    assert "strides" in joined
+    assert "progressive" in joined
+
+
 def test_build_phase_allows_z3_and_hard() -> None:
     g = phase_guidance("build")
     assert g.should_recommend_z3 is True
@@ -139,6 +150,15 @@ def test_recovery_phase_caps_at_z2_no_hard() -> None:
     assert g.run_intensity_cap_zone == "Z2"
     assert g.should_recommend_hard_intervals is False
     assert g.should_recommend_z3 is False
+    # Heller ikke neuromuskulær stimulus — kroppen skal hvile
+    assert g.allow_neuromuscular_work is False
+
+
+def test_taper_allows_strides_but_not_progression() -> None:
+    """Taper beholder neural sharpness via strides, men ingen nye stimuli."""
+    g = phase_guidance("taper")
+    assert g.allow_neuromuscular_work is True
+    assert g.allow_progression_runs is False
 
 
 def test_unknown_phase_defaults_to_base_conservative() -> None:
