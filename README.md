@@ -1,5 +1,11 @@
 # Trening
 
+> **Disclaimer:** Personlig hobby-prosjekt bygget for min egen Mac.
+> Publisert som referanse — ikke et produkt. Systemet bruker uoffisielle
+> scraper-biblioteker (Garmin Connect) og reverse-engineered endepunkter
+> (Yazio), som kan brekke når som helst uten varsel. Bruk på eget ansvar.
+> Ingen support.
+
 Personlig helse- og treningsdata-system. Henter automatisk fra Garmin,
 Withings, Concept2 og Yazio til én lokal SQLite-DB på Mac, og eksponerer
 smale CLI-er som Claude Code kan bruke via Telegram for morgenrapporter
