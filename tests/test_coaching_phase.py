@@ -103,12 +103,17 @@ def test_most_recent_active_block_wins(conn) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_base_phase_no_run_z3_ramp_conservative() -> None:
+def test_base_phase_bakken_correct_allows_run_z3() -> None:
+    """Bakken-korrekt: sub-threshold (Z3) løping fra dag 1 i base.
+
+    Z5-løping venter fortsatt til build (tissue stress). Injury-gating
+    håndteres separat via running_ruling() som er severity-aware.
+    """
     g = phase_guidance("base")
     assert g.phase == "base"
-    assert g.should_recommend_run_z3 is False
-    assert g.should_recommend_run_hard_intervals is False
-    assert g.run_intensity_cap_zone == "Z2"
+    assert g.should_recommend_run_z3 is True  # Z3 OK i base per Bakken
+    assert g.should_recommend_run_hard_intervals is False  # Z5 venter til build
+    assert g.run_intensity_cap_zone == "Z3"
     assert g.allow_long_runs_over_16km is False
     assert g.volume_ramp_pct_per_week_max == 0.10
 
@@ -180,14 +185,14 @@ def test_taper_allows_strides_but_not_progression() -> None:
     assert g.allow_progression_runs is False
 
 
-def test_base_allows_cross_z3_even_when_run_z3_blocked() -> None:
-    """I base: løp-Z3 blokkert (skade-gated), men cross-Z3 er tillatt.
+def test_base_allows_both_run_z3_and_cross_training_z3() -> None:
+    """Bakken: Z3 er definerende stimulus i base — både løp og cross-training.
 
-    Dette er hele poenget med å splitte feltene — skade-begrensning rammer
-    løping-intensitet, ikke CV-systemet.
+    Løp-Z3 gates bare ved aktiv severity 2+ skade via running_ruling(),
+    ikke ved phase boundary.
     """
     g = phase_guidance("base")
-    assert g.should_recommend_run_z3 is False
+    assert g.should_recommend_run_z3 is True
     assert g.should_recommend_cross_training_z3 is True
 
 

@@ -212,25 +212,40 @@ class InjuryRuling:
 
 
 def running_ruling(active_injuries: list[dict]) -> InjuryRuling:
-    """Hard regel: shin splints aktiv → ingen løping.
+    """Severity-aware running gate ved aktive skader.
+
+    For shin splints (eller andre matching-keywords):
+        severity 1 (mild, healing): løp OK — inkludert Z3-intervaller. Overvåk
+            48t etter økt. Cross-train alternativ hvis tvil.
+        severity 2 (moderate): hard stop — ingen løping. Cross-train OK.
+        severity 3 (severe): hard stop, også begrense cross-training hvis smerte
+            vedvarer.
 
     Args:
         active_injuries: liste av dicts fra `injury active`-CLI-en.
-            Forventede felt: body_part, severity, started_at, notes.
+            Forventede felt: body_part, severity (1-3), started_at, notes.
 
     Returns:
-        InjuryRuling med `allow=False` hvis shin splints aktiv, ellers True.
+        InjuryRuling med allow + reason + alternative.
     """
     for inj in active_injuries:
         bp = (inj.get("body_part") or "").lower()
         notes = (inj.get("notes") or "").lower()
-        if any(k in bp or k in notes for k in SHIN_SPLINTS_KEYWORDS):
-            started = inj.get("started_at") or inj.get("logged_at") or "?"
-            severity = inj.get("severity", "?")
+        if not any(k in bp or k in notes for k in SHIN_SPLINTS_KEYWORDS):
+            continue
+
+        started = inj.get("started_at") or inj.get("logged_at") or "?"
+        severity = inj.get("severity", 1)
+        try:
+            sev_int = int(severity)
+        except (TypeError, ValueError):
+            sev_int = 1
+
+        if sev_int >= 2:
             return InjuryRuling(
                 allow=False,
                 reason=(
-                    f"Shin splints aktiv (siden {started}, severity {severity}/3). "
+                    f"Shin splints aktiv (siden {started}, severity {sev_int}/3). "
                     f"Ingen løping i dag — uansett hva planen sier eller "
                     f"readiness/HRV indikerer."
                 ),
@@ -239,6 +254,20 @@ def running_ruling(active_injuries: list[dict]) -> InjuryRuling:
                     "Opprettholder kondisjon uten aksial belastning på leggen."
                 ),
             )
+
+        # severity 1 — mild, tillat løping med caveat
+        return InjuryRuling(
+            allow=True,
+            reason=(
+                f"Shin splints mild (siden {started}, severity 1/3, healing). "
+                f"Løp er tillatt inkludert kontrollert Z3 — Bakken anbefaler "
+                f"sub-threshold fra dag 1 fordi akutt belastning er lavere enn "
+                f"Z5. Interval-format foretrekkes over continuous tempo. "
+                f"Overvåk shin-respons 48t etter økt — ved flare, step ned til "
+                f"cross-training."
+            ),
+            alternative=None,
+        )
 
     return InjuryRuling(allow=True, reason=None, alternative=None)
 
@@ -700,25 +729,28 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
                 "Lytt til kropp — ikke struktur.",
             ],
         )
-    # base eller None — IMPORTANT nyanse:
-    # Bakken-base generelt er Z3-HEAVY (sub-threshold 2-3 mmol er *definerende*
-    # for fasen, ~4 sub-threshold-økter/uke i elite-versjonen, 2-3 i amatør-
-    # Singles-versjonen). Det som ekskluderes er Z4+ (over-threshold / VO2max).
+    # base eller None — Bakken-korrekt default:
+    # Sub-threshold (Z3) er DEFINERENDE stimulus i base. Bakken anbefaler
+    # eksplisitt threshold/sub-threshold "fra dag 1" selv for løpere som
+    # bygger seg opp — fordi sub-threshold er LAVERE akutt belastning enn
+    # Z5-intervaller (samme stimulus, lavere traume per økt).
     #
-    # Men denne PhaseGuidance defaulter konservativt: `should_recommend_run_z3
-    # = False`. Det er fordi default-bruken er en REBUILD-base (skade- eller
-    # detraining-restart) der løpe-Z3 er tissue-gated. En sunn, trent løper i
-    # full Bakken-base skal ha run-Z3.
+    # Biomekanisk bonus: Z3-interval-løping har høyere kadens (165-175 spm)
+    # enn slow Z2-plodding (145-155), som gir kortere ground-contact og
+    # kan være SNILLERE mot tibia enn lang-stride Z2.
     #
-    # Signal-gatene som åpner run-Z3 (håndteres av caller, ikke denne):
-    #   - Ingen aktive shin splints / kne / leggrelaterte skader
-    #   - Løpevolum ≥ 30 km/uke stabilt i 2+ uker
-    #   - Ingen volum-ramp > 15% siste uke
+    # Injury-gating skjer via running_ruling() med severity-awareness:
+    #   severity 1 (mild): Z3 OK, monitor respons 48t etter økt
+    #   severity 2 (moderate): all løping blokkert
+    #   severity 3 (severe): hard stop, cross-train only
+    #
+    # Z5-løping venter likevel til build (spes. pga tissue stress fra
+    # sustained above-threshold-arbeid, ikke CV-stress).
     return PhaseGuidance(
         phase="base",
         focus="sub-threshold-arbeid som kjerne-stimulus, aerob base, volum-toleranse",
-        run_intensity_cap_zone="Z2",  # default for rebuild-base; caller kan oppgradere
-        should_recommend_run_z3=False,  # default konservativt; true for sunn base
+        run_intensity_cap_zone="Z3",
+        should_recommend_run_z3=True,
         should_recommend_run_hard_intervals=False,  # Z5-løping venter til build
         allow_neuromuscular_work=True,
         allow_progression_runs=True,
@@ -729,33 +761,26 @@ def phase_guidance(phase: str | None) -> PhaseGuidance:
         volume_ramp_pct_per_week_max=0.10,
         strength_modulation="normal",
         notes=[
-            "VOLUM-TIER matter: Bakken-metoden er optimalisert for 100+ km/uke. "
-            "Under 25 km/uke løp: cross-training bærer CV-stimulus, løping kun "
-            "for spesifikk adaptasjon. 25-55 km/uke: polarisert hybrid (Seiler) "
-            "passer bedre enn Bakken-pure. 55+ km/uke: full Bakken-pyramidal.",
-            "Bakken-base er Z3-TUNG ved høyvolum: sub-threshold (2-3 mmol, 82-87% "
-            "HRmax) er *definerende* stimulus. 2-3 økter/uke i amatør-versjonen.",
-            "Men default i denne koden er REBUILD-base: run-Z3 blokkert fordi "
-            "skade-historikk (shin splints) / nylig lavt volum gjør det usikkert. "
-            "Z3-stimulusen flyttes midlertidig til cross-training (SkiErg, sykkel).",
-            "Caller (bot) skal oppgradere run-Z3 til True når ALLE: (a) ingen "
-            "aktive løpe-skader, (b) løpevolum ≥ 30 km/uke stabilt, (c) ingen "
-            "volum-spike siste uke. Da er det 'late base' med full Bakken-profil.",
-            "CROSS-TRAINING hard (Z4-Z5) er volum-tier-avhengig i base: "
-            "Ved HØYT volum (>= 55 km/uke løp): Bakken-pyramidal — Z4-Z5 venter "
-            "til build, kun sub-threshold stimulus nå. "
-            "Ved LOW/MODERATE volum (< 55 km/uke): polarisert hybrid — 1 hard "
-            "cross-training-økt/uke (Z4-Z5) er appropriat stimulus fordi løpe-"
-            "volumet alene ikke bærer nok aerob belastning. Caller (bot) kan "
-            "oppgradere `should_recommend_cross_training_hard_intervals` til "
-            "True når løpevolum < 55 km/uke og ingen overlast-signal.",
-            "Sustained Z4-Z5 LØPING venter uansett til build — tissue stress, "
-            "ikke CV-stress, er regulerende der. Uansett volum-tier.",
-            "Korte bursts (<30 sek) som briefly spiker til Z4-Z5 er OK og "
-            "anbefalt — neuromuskulære, ikke aerobe. Strides 4–6×15–30s submax. "
-            "Når shin stabil: X-element 10×200m eller hill sprints.",
+            "SUB-THRESHOLD LØP FRA DAG 1 — Bakkens eksplisitte anbefaling. "
+            "Z3-interval-løping (HR 80-87% HRmax, lactate 2-3 mmol) har LAVERE "
+            "akutt belastning enn Z5-intervaller, er DEFINERENDE stimulus i base. "
+            "Format: 4×4 min eller 3×6 min med jogge-pause, IKKE continuous tempo.",
+            "Biomekanisk bonus for skade-utsatte løpere: Z3-pace gir høyere kadens "
+            "(165-175 spm) og kortere ground-contact enn slow Z2-plodding "
+            "(145-155 spm). Kan faktisk være mindre tibial-belastning.",
+            "Gate på INJURY SEVERITY (ikke historikk) — running_ruling() håndterer:"
+            "severity 1 mild = Z3 OK m/ monitor; severity 2+ = all løping blokkert.",
+            "VOLUM-TIER for CROSS-TRAINING-harde-intervaller: Under 55 km/uke løp "
+            "= polarisert hybrid, 1 hard Z4-Z5 SkiErg/sykkel-økt/uke er appropriat "
+            "fordi løpe-volumet alene ikke bærer nok aerob belastning. Over 55 "
+            "km/uke løp = Bakken-pyramidal, Z4-Z5 venter til build uansett modus.",
+            "Sustained Z4-Z5 LØPING venter til build — tissue stress ved sustained "
+            "over-threshold-løp. Cross-training Z4-Z5 OK i lav-volum-tier (se over).",
+            "Korte bursts (<30 sek) som briefly spiker til Z4-Z5 er OK og anbefalt"
+            " — neuromuskulære, ikke aerobe. Strides 4–6×15–30s submax. Når shin "
+            "stabil: X-element 10×200m eller hill sprints.",
             "Progressive runs OK (easy → svak Z3-drift siste 5–10 min av langtur) "
-            "når volum er stabilt og shin er rolig.",
+            "når shin responderer fint på Z3-intervaller.",
             "Volum-progresjon løping maks +10%/uke (strengere hvis skade-risiko).",
             "Styrke: normal progresjon — base-fase konflikter ikke med tunge løft.",
         ],

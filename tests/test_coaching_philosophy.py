@@ -94,7 +94,7 @@ def test_running_ruling_no_injuries_allows() -> None:
     assert r.allow is True
 
 
-def test_running_ruling_shin_splints_blocks() -> None:
+def test_running_ruling_shin_splints_severity_2_blocks() -> None:
     r = running_ruling([{
         "body_part": "Shin",
         "severity": 2,
@@ -105,16 +105,28 @@ def test_running_ruling_shin_splints_blocks() -> None:
     assert "cross-train" in r.alternative.lower()
 
 
-def test_running_ruling_norwegian_keyword_matches() -> None:
+def test_running_ruling_shin_splints_severity_1_allows_with_caveat() -> None:
+    """Bakken-korrekt: mild shin splints blokkerer ikke løping, inkludert Z3."""
+    r = running_ruling([{
+        "body_part": "Shin",
+        "severity": 1,
+        "started_at": "2026-04-18",
+    }])
+    assert r.allow is True
+    assert "z3" in r.reason.lower() or "sub-threshold" in r.reason.lower()
+    assert "overvåk" in r.reason.lower() or "flare" in r.reason.lower()
+
+
+def test_running_ruling_norwegian_keyword_severity_2_matches() -> None:
     r = running_ruling([{
         "body_part": "Legghinne",
-        "severity": 1,
+        "severity": 2,
         "started_at": "2026-04-18",
     }])
     assert r.allow is False
 
 
-def test_running_ruling_keyword_in_notes_also_matches() -> None:
+def test_running_ruling_keyword_in_notes_with_severity_2_matches() -> None:
     r = running_ruling([{
         "body_part": "Nedre legg",
         "severity": 2,
