@@ -263,9 +263,42 @@ If the Telegram channels plugin goes offline, the same CLIs can be run manually
 in a local Claude Code terminal inside the repo. Data ingestion and analysis
 are independent of the Telegram channel.
 
-## Reference — plan document
+## Reference — plan and philosophy documents
 
-The full plan lives at `~/Library/Application Support/Trening/docs/plan-v3.md`
-(kept out of the repo since it contains user-specific context). Read it when
-you need architectural background, schema rationale, or decisions beyond what's
-documented here.
+All live in `~/Library/Application Support/Trening/docs/` (kept outside
+the repo since they contain user-specific context):
+
+- **`plan-v3.md`** — architecture plan (schema, decisions, risks). Read
+  this when you need architectural background beyond what's in CLAUDE.md.
+- **`philosophy.md`** — the user's curated training philosophy with
+  source attributions. Read this when you need to understand *why* a
+  coaching rule exists. The public counterpart (`src/coaching/philosophy.py`)
+  has the rules, not the sources.
+- **`training-plan.md`** — LIVING planning document. Weeks ahead with
+  structured sessions (day, type, plan, status). When the user asks
+  "what's this week?" or "what am I doing today?", read this file and
+  answer from it. Update status when the user reports a completed
+  session ("done with Thu Z3") or a change ("move Thu to Tue"). During
+  weekly planning, propose the next week based on the active block,
+  last week's adherence, injury status, and volume trend — write to the
+  file only after the user confirms.
+
+## Training plan workflow
+
+1. **Sunday evening** — user can ask for next week's proposal. Read
+   `training-plan.md` for the active block and any draft. Consider
+   injury status, volume trend, last week's adherence. Propose in chat,
+   wait for confirmation, then write to file.
+2. **Monday morning** — surface today's session from the file. Check
+   wellness/HRV and flag anything off (low HRV → "consider moving the
+   hard session to tomorrow").
+3. **After a session** — user reports done. Update `Status` on the right
+   row (`planned` → `DONE`) with key numbers (pace, avg HR, RPE) if
+   relevant.
+4. **Ad-hoc changes** — "move Thu to Tue" → swap the rows, update dates.
+5. **Strength sessions** — mirror to Hevy routines via
+   `update-routine`/`create-routine` MCP tools so the user's Hevy app
+   shows the right session when they start training.
+6. **At block boundaries** — when the next-eval date arrives, propose
+   transition to the next block based on progression signals (injury
+   status, volume tolerance, readiness trend).
