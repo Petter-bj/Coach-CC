@@ -1,12 +1,13 @@
-"""`plan` — ukentlig treningsplan + adherence-tracking."""
+"""`plan` — ukentlig treningsplan + adherence-tracking + proposer."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import typer
 
 from src.cli._common import emit, parse_range
+from src.coaching.proposer import ProposedWeek, propose_week
 from src.db.connection import connect
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -135,6 +136,137 @@ def adherence(
     emit(data, as_json=json_output,
          text=f"Planadherance {r.label}: {pct}% "
               f"({completed}/{planned} completed, {skipped} skipped, {modified} modified)\n")
+
+
+def _format_proposal(proposal: ProposedWeek) -> str:
+    """Formater forslaget som lesbar tekst for terminal / Telegram."""
+    variant_label = {
+        "A_green": "🟢 Grønn (full struktur)",
+        "B_yellow": "🟡 Gul (softer uke)",
+        "C_red": "🔴 Rød (ingen løp, prehab-fokus)",
+    }.get(proposal.variant, proposal.variant)
+
+    lines = [
+        f"# Forslag uke {proposal.week_start_date} (variant: {variant_label})",
+        f"# Phase: {proposal.phase}  ·  Estimert løp-km: {proposal.estimated_run_km}",
+        "",
+        "## Reasoning",
+    ]
+    for r in proposal.reasoning:
+        lines.append(f"  - {r}")
+    lines.append("")
+    lines.append("## Økter")
+    for s in proposal.sessions:
+        hr = ""
+        if s.hr_target:
+            hr = f" [HR {s.hr_target[0]}-{s.hr_target[1]}]"
+        zone = f" ({s.intensity_zone})" if s.intensity_zone else ""
+        dur = f" · {s.duration_min} min" if s.duration_min else ""
+        lines.append(f"  {s.day_of_week} {s.planned_date}: {s.type}{zone}{dur}{hr}")
+        lines.append(f"    → {s.description}")
+        if s.notes:
+            lines.append(f"    ⚠ {s.notes}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def _next_monday(anchor: date) -> date:
+    """Returner mandagen som er nærmest fremover (eller i dag hvis mandag)."""
+    days_ahead = (0 - anchor.weekday()) % 7  # 0 = mandag
+    return anchor + timedelta(days=days_ahead or 7)  # skip to next mon if today IS mon
+
+
+@app.command()
+def propose(
+    week_of: str = typer.Option(None, "--week-of",
+        help="YYYY-MM-DD (default: neste mandag)"),
+    save: bool = typer.Option(False, "--save",
+        help="Skriv forslaget til planned_sessions-tabellen"),
+    push_hevy: bool = typer.Option(False, "--push-hevy",
+        help="Speil strength-dagene til Hevy-routines (krever --save)"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Foreslå neste ukes treningsplan basert på aktiv blokk og state.
+
+    Default er dry-run: vis forslag + reasoning, ingen skriving.
+    Med --save: skriver til planned_sessions.
+    Med --save --push-hevy: oppdaterer også Hevy routines for strength-dagene.
+    """
+    if week_of:
+        week_start = date.fromisoformat(week_of)
+        # Sikre at det er mandag
+        if week_start.weekday() != 0:
+            week_start = week_start - timedelta(days=week_start.weekday())
+    else:
+        week_start = _next_monday(date.today())
+
+    with connect() as c:
+        proposal = propose_week(c, week_start)
+
+    if json_output:
+        emit({
+            "week_start_date": proposal.week_start_date,
+            "variant": proposal.variant,
+            "phase": proposal.phase,
+            "estimated_run_km": proposal.estimated_run_km,
+            "reasoning": proposal.reasoning,
+            "sessions": [
+                {
+                    "planned_date": s.planned_date,
+                    "day_of_week": s.day_of_week,
+                    "type": s.type,
+                    "duration_min": s.duration_min,
+                    "intensity_zone": s.intensity_zone,
+                    "hr_target": s.hr_target,
+                    "description": s.description,
+                    "notes": s.notes,
+                } for s in proposal.sessions
+            ],
+        }, as_json=True)
+    else:
+        typer.echo(_format_proposal(proposal))
+
+    if save:
+        with connect() as c:
+            for s in proposal.sessions:
+                existing = c.execute(
+                    "SELECT id FROM planned_sessions WHERE planned_date = ?",
+                    (s.planned_date,),
+                ).fetchone()
+                if existing:
+                    c.execute(
+                        """
+                        UPDATE planned_sessions
+                           SET type = ?, description = ?, status = 'planned'
+                         WHERE id = ?
+                        """,
+                        (s.type, s.description + (f"\n{s.notes}" if s.notes else ""),
+                         existing["id"]),
+                    )
+                else:
+                    c.execute(
+                        """
+                        INSERT INTO planned_sessions
+                            (planned_date, type, description, status)
+                        VALUES (?, ?, ?, 'planned')
+                        """,
+                        (s.planned_date, s.type,
+                         s.description + (f"\n{s.notes}" if s.notes else "")),
+                    )
+            c.commit()
+        typer.echo(f"✓ Lagret {len(proposal.sessions)} økter til planned_sessions\n")
+
+    if push_hevy:
+        if not save:
+            typer.echo("⚠ --push-hevy krever --save. Hopper over Hevy-push.",
+                       err=True)
+            return
+        from src.coaching.hevy_sync import sync_strength_routines_for_week
+        result = sync_strength_routines_for_week(proposal)
+        typer.echo(f"✓ Hevy-sync: {result['updated']} routines oppdatert, "
+                   f"{result['skipped']} skipped, {result['errors']} errors\n")
+        for note in result.get("notes", []):
+            typer.echo(f"  - {note}")
 
 
 if __name__ == "__main__":
