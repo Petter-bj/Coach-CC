@@ -115,20 +115,33 @@ def test_last_top_set_none_for_unknown_exercise(conn) -> None:
 
 
 def test_last_top_set_respects_within_days(conn) -> None:
-    # Økt i dag (nå)
+    # Bruk dagens dato for å unngå date-drift i testen
+    from datetime import date, timedelta
+    today = date.today()
+    yesterday = today - timedelta(days=1)
     _insert_session(
         conn,
-        started_at="2026-04-21T10:00:00Z",  # i dag
-        local_date="2026-04-21",
+        started_at=f"{yesterday.isoformat()}T10:00:00Z",
+        local_date=yesterday.isoformat(),
         sets=[("Squat", 1, 8, 100.0, 8)],
     )
     top = last_top_set(conn, "Squat", within_days=7)
     assert top is not None
 
-    # Sett within_days=1 og sett datoen i fremtiden — skal fortsatt være inkludert
-    # (date('now', '-1 days') < 2026-04-21)
-    top = last_top_set(conn, "Squat", within_days=1)
+    # within_days=2 skal inkludere i går, within_days=0 vil ekskludere den
+    top = last_top_set(conn, "Squat", within_days=2)
     assert top is not None
+
+    # Insert en gammel økt (30 dager gammel) og søk innen 7 → ikke finne
+    old_date = today - timedelta(days=30)
+    _insert_session(
+        conn,
+        started_at=f"{old_date.isoformat()}T10:00:00Z",
+        local_date=old_date.isoformat(),
+        sets=[("Deadlift", 1, 5, 120.0, 9)],
+    )
+    top = last_top_set(conn, "Deadlift", within_days=7)
+    assert top is None  # 30d gammel, søker innen 7d
 
 
 def test_last_top_set_excludes_superseded(conn) -> None:

@@ -29,7 +29,7 @@ SCRIPT_DEST_DIR = APP_SUPPORT / "scripts"
 SCRIPT_DEST = SCRIPT_DEST_DIR / "start-bot.sh"
 
 LABEL_PREFIX = "com.trening"
-JOBS = ["sync", "backup", "bot"]
+JOBS = ["sync", "backup", "bot", "monitor"]
 
 
 def _uid() -> int:
