@@ -237,13 +237,23 @@ an `exercise_aliases` table if needed. Defer until baselines show noise.
 
 ---
 
-## 11. Independent Telegram alerter (decoupled from Claude Code)
+## 11. Independent Telegram alerter (decoupled from Claude Code) — partially done
 
 Small Python script + launchd plist that polls `alerts` table every 5
 min and sends plain Telegram messages via Bot API when unacknowledged
 alerts exist. Works even when Claude Code session is down.
 
-Today Claude Code surfaces alerts when you ask — silent otherwise.
+**Shipped 2026-04-24** — `src/monitor.py` + `com.trening.monitor` plist
+implements this pattern for *bot-health alerts* (process dead, tmux
+dead, 401 auth, Telegram unreachable). Uses direct Bot API independent
+of Claude Code, with 30-min dedupe per issue type and auto-recovery
+attempt for process/tmux death.
+
+**Still open:** Extending the same monitor to poll the existing
+`alerts` table (where sync sources write sync-failure alerts) and
+deliver those via the same channel. Currently sync-failure alerts only
+surface when user explicitly asks the bot. Trivial extension of the
+monitor (add `_poll_alerts_table()` check, mark alerts as delivered).
 
 ---
 
@@ -347,3 +357,65 @@ the coach gets better at knowing when YOU want to hear from it.
 - Idea #11 (independent Telegram alerter) is a prerequisite — same
   outbound-messaging infrastructure, just rule-based
 - Eventually both become "one proactive service, many triggers"
+
+---
+
+## 13. Live in-workout coaching from Claude
+
+**Concept.** During a hard session (Z3 intervals, race-pace work, race
+day itself), real-time coaching feedback. Watch-side data → server →
+Claude → response surfaced back to user mid-workout. Useful primarily
+for pacing decisions and "is this still the right intensity for today's
+goal" questions when judgment under fatigue is unreliable.
+
+**The Garmin reality check.** Garmin does NOT expose a live data-stream
+API. The watch records and uploads after the activity ends. Three
+workarounds exist:
+
+**Option A — LiveTrack scraper (quick, sparse data).**
+- User starts LiveTrack on watch → public URL with HR/pace/distance
+  refreshed every 15-60s
+- Server polls URL, parses, hands to Claude with today's plan as context
+- Claude response delivered via Telegram notification (visible on watch)
+- Effort: ~10-15h. Brittle (LiveTrack URL parsing can break), data is
+  delayed and sparse.
+
+**Option B — Connect IQ data field + phone bridge (preferred).** ⭐
+- Custom Connect IQ data field in Monkey C runs during activity
+- Pushes HR/pace/distance/lap data to phone via BT every N seconds
+- Phone forwards to server (Mac via WiFi/cellular) → Claude API
+- Response back through Telegram notification → visible on watch
+- Effort: 30-50h (Monkey C dev + phone bridge + server flow)
+- Right architecture: native experience, full data access, real-time.
+- Natural follow-up to the Connect IQ watchface project — once Monkey C
+  + Connect IQ deploy cycle is established, this becomes a 1-2 week
+  extension instead of a 5-week from-scratch project.
+
+**Option C — Trigger-based ("ask now" button).**
+- Custom Connect IQ data field with a single button
+- One tap → snapshot of current metrics sent to server
+- Server pulls today's plan + state, queries Claude for context-aware
+  advice ("you're at Z3 but plan said Z2 — slow down"), sends response
+  via Telegram
+- Effort: ~15-20h. Sweet spot for 80% of value at 30% of work — but
+  user has to trigger manually instead of getting continuous feedback.
+
+**Where it actually pays off.**
+Live coaching has marginal value on easy runs (built-in HR-zone alerts
+already cover that). The real value is on:
+- Hard interval sessions (Z3 4×3min, etc.) — feedback if drifting into Z4
+- Race-pace efforts — pacing under fatigue when judgment fails
+- Race day itself — final-km decisions ("can I push, or hold?")
+
+User is months away from those use cases. Build only after the Connect
+IQ watchface project is shipped (so Monkey C tooling exists).
+
+**Voice angle.** A natural extension is voice delivery to AirPods during
+the run instead of (or alongside) Telegram notifications. Architecturally
+adds: TTS step (Apple system speech, ElevenLabs, OpenAI TTS) + audio
+routing to connected BT device. iOS Shortcut + Claude API + "Speak Text"
+action gets you a working version of "press button on watch → ask Claude
+question by voice → hear response via AirPods" without any Garmin-side
+work. Simpler MVP than full Connect IQ data field for the same use case.
+
+**Decision: option B is the target architecture if/when this gets built.**
