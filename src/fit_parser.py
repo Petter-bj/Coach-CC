@@ -65,6 +65,36 @@ def _speed_to_pace_sec_per_km(speed_m_per_s: float | None) -> float | None:
     return 1000.0 / speed_m_per_s
 
 
+def _records_to_unique_samples(
+    records: list[dict],
+    first_ts: datetime | None,
+) -> list[dict]:
+    """Konverter records-liste til samples med unike t_offset_sec.
+
+    Bakgrunn: Noen Garmin-aktiviteter samples sub-second (>1 Hz), spesielt under
+    intervaller. workout_samples-tabellen har PRIMARY KEY (workout_id,
+    t_offset_sec) hvor t_offset_sec er INTEGER, så vi kan ikke beholde
+    sub-sekund-granularitet uansett. Strategi: behold siste record per sekund.
+    """
+    samples_by_offset: dict[int, dict] = {}
+    for r in records:
+        offset = int((r["timestamp"] - first_ts).total_seconds()) if first_ts else 0
+        samples_by_offset[offset] = {
+            "t_offset_sec": offset,
+            "hr": r["hr"],
+            "pace_sec_per_km": r["pace_sec_per_km"],
+            "speed_m_per_sec": r["speed_m_per_sec"],
+            "cadence": r["cadence"],
+            "power_w": r["power_w"],
+            "distance_m": r["distance_m"],
+            "altitude_m": r["altitude_m"],
+            "vertical_oscillation_mm": r["vertical_oscillation_mm"],
+            "ground_contact_ms": r["ground_contact_ms"],
+            "stride_length_mm": r["stride_length_mm"],
+        }
+    return [samples_by_offset[k] for k in sorted(samples_by_offset)]
+
+
 def _extract_record(frame: fitdecode.FitDataMessage) -> dict | None:
     """Ekstraher felter fra en 'record'-frame til dict med våre kolonnenavn."""
     fields = {f.name: f.value for f in frame.fields}
@@ -126,22 +156,7 @@ def parse_fit_to_samples(path: Path) -> tuple[list[dict], FitSummary]:
                     if f.name in session_info:
                         session_info[f.name] = f.value
 
-    samples: list[dict] = []
-    for r in records:
-        offset = int((r["timestamp"] - first_ts).total_seconds()) if first_ts else 0
-        samples.append({
-            "t_offset_sec": offset,
-            "hr": r["hr"],
-            "pace_sec_per_km": r["pace_sec_per_km"],
-            "speed_m_per_sec": r["speed_m_per_sec"],
-            "cadence": r["cadence"],
-            "power_w": r["power_w"],
-            "distance_m": r["distance_m"],
-            "altitude_m": r["altitude_m"],
-            "vertical_oscillation_mm": r["vertical_oscillation_mm"],
-            "ground_contact_ms": r["ground_contact_ms"],
-            "stride_length_mm": r["stride_length_mm"],
-        })
+    samples = _records_to_unique_samples(records, first_ts)
 
     summary = FitSummary(
         start_time_utc=first_ts,
