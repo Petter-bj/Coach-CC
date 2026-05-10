@@ -200,3 +200,32 @@ def test_reconcile_skierg_matches_concept2_skierg_type(conn) -> None:
     result = reconcile_planned_sessions(conn, since_days_ago=7)
     assert result.matched == 1
     assert result.matches[0][1] == skierg_id
+
+
+# ---------------------------------------------------------------------------
+# weekly_plan auto-skip-logic (testes mot existing_plan_count)
+# ---------------------------------------------------------------------------
+
+
+def test_existing_plan_count_zero(conn) -> None:
+    from src.weekly_plan import existing_plan_count
+    monday = date.today() + timedelta(days=7)
+    assert existing_plan_count(conn, monday) == 0
+
+
+def test_existing_plan_count_in_window(conn) -> None:
+    from src.weekly_plan import existing_plan_count
+    today = date.today()
+    monday = today + timedelta(days=7)
+    # Sett inn en plan-rad innenfor neste uke
+    conn.execute(
+        "INSERT INTO planned_sessions (planned_date, type, status) VALUES (?, 'easy_run', 'planned')",
+        ((monday + timedelta(days=2)).isoformat(),),
+    )
+    # Og en utenfor (denne uka)
+    conn.execute(
+        "INSERT INTO planned_sessions (planned_date, type, status) VALUES (?, 'easy_run', 'planned')",
+        ((today - timedelta(days=2)).isoformat(),),
+    )
+    conn.commit()
+    assert existing_plan_count(conn, monday) == 1

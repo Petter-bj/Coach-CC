@@ -288,10 +288,23 @@ the repo since they contain user-specific context):
 
 ## Training plan workflow
 
+**CRITICAL:** When the user approves a plan, write to BOTH
+`training-plan.md` AND the `planned_sessions` DB table via
+`plan update --date X --type Y --description Z` per day. If you only
+update markdown, the plan won't be in the DB and:
+- `plan adherence` reports get wrong numbers
+- The Sunday auto-trigger (com.trening.weekly-plan) thinks you have no
+  plan and sends an auto-proposal that may contradict what you already agreed
+- Proposer's adherence-aware ramp loses adherence signal
+
+Alternatively for a full week: `plan propose --week-of YYYY-MM-DD --save`
+overwrites the whole week based on proposer output.
+
 1. **Sunday evening** — user can ask for next week's proposal. Read
    `training-plan.md` for the active block and any draft. Consider
    injury status, volume trend, last week's adherence. Propose in chat,
-   wait for confirmation, then write to file.
+   wait for confirmation, then write to BOTH the file AND
+   `planned_sessions` via the `plan update` CLI.
 2. **Monday morning** — surface today's session from the file. Check
    wellness/HRV and flag anything off (low HRV → "consider moving the
    hard session to tomorrow").
