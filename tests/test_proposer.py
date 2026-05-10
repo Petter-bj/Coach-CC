@@ -10,8 +10,11 @@ import pytest
 from src.coaching.proposer import (
     ProposedSession,
     ProposedWeek,
+    planned_run_volume_km,
     propose_week,
+    recent_adherence_pct,
     shin_status,
+    volume_baseline_km,
     weekly_running_volume_km,
 )
 from src.db.connection import configure
@@ -208,8 +211,9 @@ def test_reasoning_includes_volume(conn) -> None:
     monday = date.today() + timedelta(days=7)
     p = propose_week(conn, monday)
     reasoning_text = " ".join(p.reasoning).lower()
-    assert "løp" in reasoning_text
+    assert "km" in reasoning_text  # baseline mentions km
     assert "variant" in reasoning_text
+    assert "ramp" in reasoning_text or "%" in reasoning_text
 
 
 def test_estimated_run_km_reasonable(conn) -> None:
@@ -228,3 +232,98 @@ def test_no_active_block_defaults_to_base(conn) -> None:
     p = propose_week(conn, monday)
     assert p.phase == "base"  # fallback
     assert len(p.sessions) == 7
+
+
+# ---------------------------------------------------------------------------
+# Adherence-aware ramp (C)
+# ---------------------------------------------------------------------------
+
+
+def _insert_planned(conn, days_ago: int, type_: str, description: str,
+                    status: str = "planned") -> None:
+    d = date.today() - timedelta(days=days_ago)
+    conn.execute(
+        """
+        INSERT INTO planned_sessions (planned_date, type, description, status)
+        VALUES (?, ?, ?, ?)
+        """,
+        (d.isoformat(), type_, description, status),
+    )
+    conn.commit()
+
+
+def test_adherence_pct_none_when_no_planned_sessions(conn) -> None:
+    assert recent_adherence_pct(conn) is None
+
+
+def test_adherence_pct_basic(conn) -> None:
+    _insert_planned(conn, 5, "easy_run", "Easy 5km", status="completed")
+    _insert_planned(conn, 3, "z3_run", "Z3 4×5", status="completed")
+    _insert_planned(conn, 1, "long_run", "Long 8km", status="skipped")
+    pct = recent_adherence_pct(conn)
+    assert pct == round(100 * 2 / 3, 1)
+
+
+def test_planned_run_volume_extracts_km(conn) -> None:
+    _insert_planned(conn, 5, "easy_run", "Easy run ~5.5 km Z2")
+    _insert_planned(conn, 3, "z3_run", "Z3-økt: 6 km hard")
+    _insert_planned(conn, 1, "long_run", "Long ~8 km")
+    km = planned_run_volume_km(conn)
+    assert km == 19.5
+
+
+def test_planned_run_volume_falls_back_to_duration(conn) -> None:
+    """Hvis ingen km i description, estimer fra min."""
+    _insert_planned(conn, 3, "easy_run", "30-40 min Z2")  # 30 min / 6.5 = 4.6
+    km = planned_run_volume_km(conn)
+    assert 4.0 < km < 5.0
+
+
+def test_volume_baseline_uses_actual_when_high_adherence(conn) -> None:
+    """Adherence ≥ 80%: bruk actual (det fungerer)."""
+    _insert_run(conn, 5, 5000)
+    _insert_run(conn, 2, 7000)  # actual 12 km
+    _insert_planned(conn, 5, "easy_run", "Easy ~5km", status="completed")
+    _insert_planned(conn, 4, "easy_skierg", "30 min skierg", status="completed")
+    _insert_planned(conn, 2, "long_run", "Long ~7km", status="completed")
+    # 3/3 completed, planned km = 5+7=12, actual 12
+    baseline, expl = volume_baseline_km(conn)
+    assert baseline == 12.0
+    assert "actual" in expl
+
+
+def test_volume_baseline_uses_planned_when_low_adherence(conn) -> None:
+    """Adherence < 60%: bruk planned (situasjons-dropp, hold målet)."""
+    _insert_run(conn, 5, 5000)  # bare 5 km gjennomført
+    _insert_planned(conn, 6, "easy_run", "Easy ~5km", status="completed")
+    _insert_planned(conn, 5, "z3_run", "Z3 ~6km", status="skipped")
+    _insert_planned(conn, 4, "long_run", "Long ~9km", status="skipped")
+    _insert_planned(conn, 2, "easy_run", "Easy ~5km", status="skipped")
+    # 1/4 completed = 25% adherence
+    baseline, expl = volume_baseline_km(conn)
+    # Bør bruke planned (5+6+9+5=25 km), ikke actual (5 km)
+    assert baseline == 25.0
+    assert "planned" in expl
+    assert "situasjons" in expl
+
+
+def test_volume_baseline_average_when_partial_adherence(conn) -> None:
+    """Adherence 60-80%: snitt av actual og planned."""
+    _insert_run(conn, 5, 6000)
+    _insert_run(conn, 2, 6000)  # actual 12 km
+    _insert_planned(conn, 6, "easy_run", "Easy ~6km", status="completed")
+    _insert_planned(conn, 4, "z3_run", "Z3 ~6km", status="completed")
+    _insert_planned(conn, 2, "long_run", "Long ~8km", status="skipped")
+    # 2/3 = 66.7%
+    baseline, expl = volume_baseline_km(conn)
+    # Planned 20 km, actual 12 km, snitt = 16
+    assert baseline == 16.0
+    assert "snitt" in expl
+
+
+def test_volume_baseline_falls_back_to_actual_no_plans(conn) -> None:
+    _insert_run(conn, 3, 8000)
+    baseline, expl = volume_baseline_km(conn)
+    assert baseline == 8.0
+    assert "actual" in expl
+    assert "ingen plan" in expl

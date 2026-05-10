@@ -70,6 +70,9 @@ Time ranges: `--range last_7d | last_30d | week_of=YYYY-MM-DD`.
 - `rpe set --workout-id <id> --rpe 0-10`
 - `volume --range last_7d`
 - `prs [--exercise '...']`
+- `zones workout --workout-id N` — Olympiatoppen Z1-Z5 minutes for one workout
+- `zones range --range last_7d` — aggregated zone breakdown for a period
+- `cadence workout <id>` / `cadence trend --range last_30d` — running cadence trend
 
 ### Coaching and preferences
 - `prefs list` / `prefs get <key>` / `prefs set <key> <value>`

@@ -79,6 +79,97 @@ def weekly_running_volume_km(conn: sqlite3.Connection, days_back: int = 7) -> fl
     return float(row["km"]) if row else 0.0
 
 
+def recent_adherence_pct(conn: sqlite3.Connection, days_back: int = 7) -> float | None:
+    """Prosent fullførte planlagte økter siste N dager (alle types).
+
+    Returns None hvis ingen planlagte økter i perioden.
+    """
+    row = conn.execute(
+        """
+        SELECT
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS done,
+            COUNT(*) AS total
+          FROM planned_sessions
+         WHERE planned_date >= date('now', ?)
+           AND planned_date <= date('now')
+        """,
+        (f"-{days_back} days",),
+    ).fetchone()
+    if not row or not row["total"] or row["total"] == 0:
+        return None
+    return round(100.0 * row["done"] / row["total"], 1)
+
+
+def planned_run_volume_km(conn: sqlite3.Connection, days_back: int = 7) -> float:
+    """Sum km LØP planlagt siste N dager (uavhengig av status).
+
+    Beste tolkning: hvis du forventet å løpe X km, og bare gjorde Y km pga
+    livet, er X den 'reelle' baselinen for fitness-progresjon.
+
+    Henter ut km fra `description`-feltet hvis det inneholder "X km" eller
+    "~X km" — siden plan-filen er tekst-basert. Fallback til estimat fra
+    duration hvis ingen km nevnt.
+    """
+    import re
+    rows = conn.execute(
+        """
+        SELECT description, type
+          FROM planned_sessions
+         WHERE planned_date >= date('now', ?)
+           AND planned_date <= date('now')
+           AND (type LIKE 'run%' OR type LIKE 'long_run%' OR type = 'easy_run'
+                OR type = 'z3_run')
+        """,
+        (f"-{days_back} days",),
+    ).fetchall()
+
+    total_km = 0.0
+    for r in rows:
+        desc = (r["description"] or "")
+        m = re.search(r"~?(\d+(?:[.,]\d+)?)\s*km", desc)
+        if m:
+            total_km += float(m.group(1).replace(",", "."))
+            continue
+        # Fallback: estimer fra duration_min hvis nevnt — anta 6.5 min/km
+        m = re.search(r"(\d+)(?:-\d+)?\s*min", desc)
+        if m:
+            mins = int(m.group(1))
+            pace = 5.5 if r["type"] == "z3_run" else 6.5
+            total_km += mins / pace
+    return round(total_km, 1)
+
+
+def volume_baseline_km(conn: sqlite3.Connection) -> tuple[float, str]:
+    """Returner (baseline_km, kilde-forklaring) brukt for neste ukes ramp.
+
+    Logikk:
+      - adherence ≥ 80% siste uke → bruk ACTUAL (det fungerer, bygg derfra)
+      - adherence 60-80% → bruk SNITT av actual og planned
+      - adherence < 60% → bruk PLANNED (situasjons-dropp, hold målet)
+      - ingen plan-data → fallback til actual
+    """
+    actual = weekly_running_volume_km(conn, days_back=7)
+    adherence = recent_adherence_pct(conn, days_back=7)
+    planned = planned_run_volume_km(conn, days_back=7)
+
+    if adherence is None or planned == 0:
+        return actual, f"actual ({actual:.1f} km, ingen plan-data)"
+
+    if adherence >= 80:
+        return actual, f"actual ({actual:.1f} km, adherence {adherence}%)"
+    if adherence < 60:
+        return planned, (
+            f"planned ({planned:.1f} km, adherence {adherence}% — antar "
+            f"situasjons-dropp ikke fitness-tap)"
+        )
+    # 60-80%: snitt
+    avg = round((actual + planned) / 2.0, 1)
+    return avg, (
+        f"snitt({actual:.1f} actual, {planned:.1f} planned) = {avg} km, "
+        f"adherence {adherence}%"
+    )
+
+
 def shin_status(conn: sqlite3.Connection) -> str:
     """Returner klassifisering: 'clear' | 'active_mild' | 'active_moderate' | 'active_severe'."""
     rows = conn.execute(
@@ -165,10 +256,13 @@ def propose_week(
     guidance = phase_guidance(phase)
 
     shin = shin_status(conn)
-    last_week_km = weekly_running_volume_km(conn, days_back=7)
     hrv_dip = recent_hrv_dip(conn)
     wellness = wellness_avg_7d(conn)
     hr_max = get_hr_max(conn) or 195  # fallback estimate
+
+    # Baseline med adherence-aware-justering
+    baseline_km, baseline_explain = volume_baseline_km(conn)
+    last_week_km = baseline_km  # alias så resten av logikken er uendret
 
     # --- Variant-valg basert på shin ---
     if shin == "active_severe":
@@ -188,9 +282,10 @@ def propose_week(
     reasoning: list[str] = []
     reasoning.append(f"Aktiv blokk: {block.name if block else '(ingen)'} (phase={phase})")
     reasoning.append(f"Shin-status: {shin} → variant {variant}")
+    reasoning.append(f"Volum-baseline: {baseline_explain}")
     reasoning.append(
-        f"Løp siste uke: {last_week_km:.1f} km → foreslår ~{target_run_km:.1f} km "
-        f"({'+' if volume_growth_pct >= 0 else ''}{volume_growth_pct*100:.0f}%)"
+        f"Foreslår ~{target_run_km:.1f} km neste uke "
+        f"({'+' if volume_growth_pct >= 0 else ''}{volume_growth_pct*100:.0f}% ramp)"
     )
     if hrv_dip:
         reasoning.append("⚠ HRV-dropp > 10% siste 7d vs 30d — softer hard-økter")

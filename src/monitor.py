@@ -33,7 +33,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.paths import APP_SUPPORT, ENV_FILE, LOGS, ensure_runtime_dirs
+from src.paths import APP_SUPPORT, DB_PATH, ENV_FILE, LOGS, ensure_runtime_dirs
 
 # Last .env så TELEGRAM_BOT_TOKEN og _ALLOWED_CHAT_IDS er tilgjengelig
 if ENV_FILE.exists():
@@ -51,6 +51,9 @@ PANE_TAIL_LINES = 200
 
 # Claude-prosess-identifikator (matches "claude --channels plugin:...")
 CLAUDE_PROCESS_PATTERN = "claude --channels plugin:telegram"
+
+# Sync-staleness: hvis ingen vellykket sync_run siste N timer → flagg
+SYNC_STALE_HOURS = 12
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +124,37 @@ def telegram_reachable(timeout: float = 5.0) -> bool:
         return False
 
 
+def hours_since_last_successful_sync() -> float | None:
+    """Returner timer siden siste sync_runs-rad med status='success'.
+
+    None hvis DB ikke eksisterer eller ingen vellykket sync ennå.
+    """
+    import sqlite3
+    if not DB_PATH.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT MAX(finished_at) AS last_ok
+              FROM sync_runs
+             WHERE status = 'success'
+            """
+        ).fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if not row or not row["last_ok"]:
+        return None
+    try:
+        last = datetime.fromisoformat(row["last_ok"].replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    delta = datetime.now(timezone.utc) - last
+    return delta.total_seconds() / 3600.0
+
+
 def check_health() -> list[Issue]:
     """Kjør alle sjekker, returner liste med issues (tom = alt OK)."""
     issues: list[Issue] = []
@@ -163,6 +197,20 @@ def check_health() -> list[Issue]:
             type="telegram_unreachable",
             message=f"Kan ikke nå {TELEGRAM_HOST}:{TELEGRAM_PORT} — nettverks- eller Telegram-problem",
             auto_recoverable=False,
+        ))
+
+    # Check 5: Sync har kjørt vellykket nylig
+    hours_stale = hours_since_last_successful_sync()
+    if hours_stale is not None and hours_stale > SYNC_STALE_HOURS:
+        issues.append(Issue(
+            type="sync_stale",
+            message=(
+                f"Siste vellykkede sync var {hours_stale:.1f}t siden "
+                f"(grense: {SYNC_STALE_HOURS}t). Garmin/Hevy/etc-data er ikke oppdatert. "
+                "Mac kan ha sovet eller launchd-job kan ha feilet. "
+                "Fix: `cd ~/Documents/Prosjekter/Trening && uv run python -m launchd.install kickstart sync`"
+            ),
+            auto_recoverable=True,
         ))
 
     return issues
@@ -289,6 +337,18 @@ def try_auto_recover(issue_type: str) -> bool:
     if issue_type == "tmux_dead":
         # Samme fiks — kickstart bot som sjekker/lager tmux-sesjon
         return try_auto_recover("process_dead")
+    if issue_type == "sync_stale":
+        uid = os.getuid()
+        try:
+            result = subprocess.run(
+                ["launchctl", "kickstart", "-k", f"gui/{uid}/com.trening.sync"],
+                capture_output=True, text=True, timeout=10,
+            )
+            print(f"[monitor] Auto-recover sync_stale: launchctl kickstart sync → "
+                  f"rc={result.returncode}")
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
     return False
 
 
