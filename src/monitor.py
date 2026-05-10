@@ -283,8 +283,12 @@ def _resolve_chat_id() -> str | None:
     return None
 
 
-def send_telegram_alert(message: str) -> bool:
-    """Send alert direkte via Telegram Bot API. Returnerer True ved suksess."""
+def send_telegram_message(text: str) -> bool:
+    """Send rå melding til Telegram via Bot API. Returner True ved suksess.
+
+    Brukes også av andre moduler (weekly_plan etc.) — derfor er den generisk.
+    Mangler TELEGRAM_BOT_TOKEN/chat_id → returnerer False og logger.
+    """
     import httpx
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -299,10 +303,7 @@ def send_telegram_alert(message: str) -> bool:
         return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": f"🚨 Bot-health alert\n\n{message}",
-    }
+    payload = {"chat_id": chat_id, "text": text}
     try:
         resp = httpx.post(url, json=payload, timeout=10)
         if resp.status_code != 200:
@@ -310,8 +311,13 @@ def send_telegram_alert(message: str) -> bool:
                   f"{resp.text[:200]}", file=sys.stderr)
         return resp.status_code == 200
     except httpx.HTTPError as e:
-        print(f"[monitor] Telegram-alert feilet: {e}", file=sys.stderr)
+        print(f"[monitor] Telegram-melding feilet: {e}", file=sys.stderr)
         return False
+
+
+def send_telegram_alert(message: str) -> bool:
+    """Send health-alert med standard prefix. Wrapper over send_telegram_message."""
+    return send_telegram_message(f"🚨 Bot-health alert\n\n{message}")
 
 
 # ---------------------------------------------------------------------------

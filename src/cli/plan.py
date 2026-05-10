@@ -8,6 +8,7 @@ import typer
 
 from src.cli._common import emit, parse_range
 from src.coaching.proposer import ProposedWeek, propose_week
+from src.coaching.reconcile_plan import reconcile_planned_sessions
 from src.db.connection import connect
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -267,6 +268,52 @@ def propose(
                    f"{result['skipped']} skipped, {result['errors']} errors\n")
         for note in result.get("notes", []):
             typer.echo(f"  - {note}")
+
+
+@app.command()
+def reconcile(
+    since_days_ago: int = typer.Option(30, "--since-days-ago"),
+    dry_run: bool = typer.Option(False, "--dry-run",
+        help="Vis hva som ville blitt matchet uten å skrive"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Match planned_sessions med faktiske workouts (samme dato + type-familie).
+
+    Setter status='completed' og workout_id på matchede rader. Kjøres
+    automatisk etter hver sync; CLI'en er for manuelt run / debug.
+    """
+    with connect() as c:
+        result = reconcile_planned_sessions(c, since_days_ago=since_days_ago,
+                                             apply=not dry_run)
+
+    payload = {
+        "rows_examined": result.rows_examined,
+        "matched": result.matched,
+        "unmatched": result.unmatched,
+        "already_completed": result.already_completed,
+        "no_type_map": result.no_type_map,
+        "applied": not dry_run,
+        "matches": [
+            {"plan_id": pid, "workout_id": wid, "plan_type": ptype}
+            for pid, wid, ptype in (result.matches or [])
+        ],
+    }
+    if json_output:
+        emit(payload, as_json=True)
+        return
+
+    mode = "dry-run" if dry_run else "applied"
+    text = (
+        f"Reconcile ({mode}): examined {result.rows_examined} rows, "
+        f"matched {result.matched}, unmatched {result.unmatched}, "
+        f"already_completed {result.already_completed}, "
+        f"no_type_map {result.no_type_map}\n"
+    )
+    if result.matches:
+        text += "\nMatches:\n"
+        for pid, wid, ptype in result.matches:
+            text += f"  plan #{pid} ({ptype}) → workout #{wid}\n"
+    emit(payload, as_json=False, text=text)
 
 
 if __name__ == "__main__":
