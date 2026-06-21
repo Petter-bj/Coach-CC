@@ -15,6 +15,11 @@ spikes/output/
 *.secret
 credentials/
 
+# Lokale databaser — canonical DB ligger i ~/Library/Application Support/Trening/health.db
+*.db
+*.db-wal
+*.db-shm
+
 # Lokal CLAUDE.md — brukeren kan ha egen språk- og stil-preferanse.
 # CLAUDE.example.md er canonical/tracked template; kopier den og tilpass.
 CLAUDE.md
