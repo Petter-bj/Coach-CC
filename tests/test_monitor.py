@@ -8,7 +8,11 @@ import pytest
 
 from src.monitor import (
     DEDUPE_MINUTES,
+    RESTART_COOLDOWN_MINUTES,
     Issue,
+    _parse_etime,
+    _restart_cooldown_ok,
+    has_plugin_disconnect,
     has_recent_auth_error,
     mark_alerted,
     should_alert,
@@ -214,3 +218,73 @@ def test_sync_stale_check_only_failures(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(monitor, "DB_PATH", db)
     assert monitor.hours_since_last_successful_sync() is None
+
+
+# ---------------------------------------------------------------------------
+# _parse_etime
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("etime,expected", [
+    ("42:19", 2539),
+    ("00:44", 44),
+    ("1:23:45", 5025),
+    ("3-00:15:32", 260132),
+    ("0-01:00:00", 3600),
+    ("", None),
+    ("garbage", None),
+])
+def test_parse_etime(etime, expected) -> None:
+    assert _parse_etime(etime) == expected
+
+
+# ---------------------------------------------------------------------------
+# has_plugin_disconnect
+# ---------------------------------------------------------------------------
+
+
+def test_plugin_disconnect_detects_phrase() -> None:
+    pane = "← telegram · bruker: test\nTelegram-pluginen disconnecta — kan ikke svare"
+    assert has_plugin_disconnect(pane) is True
+
+
+def test_plugin_disconnect_detects_dropped() -> None:
+    pane = "Telegram-tilkoblingen ser ut til å ha droppet. La meg prøve igjen."
+    assert has_plugin_disconnect(pane) is True
+
+
+def test_plugin_disconnect_clean_pane() -> None:
+    pane = "Listening for channel messages from: plugin:telegram\n❯ Try fix lint"
+    assert has_plugin_disconnect(pane) is False
+
+
+def test_plugin_disconnect_ignores_old_scrollback() -> None:
+    """Disconnect-frase langt oppe i scrollback (utenfor recent_lines)
+    skal IKKE telle — bare nylige linjer."""
+    old = "Telegram-pluginen disconnecta\n" + "\n".join(f"line {i}" for i in range(60))
+    assert has_plugin_disconnect(old, recent_lines=40) is False
+
+
+# ---------------------------------------------------------------------------
+# _restart_cooldown_ok
+# ---------------------------------------------------------------------------
+
+
+def test_restart_cooldown_no_prior_restart() -> None:
+    assert _restart_cooldown_ok({}) is True
+
+
+def test_restart_cooldown_recent_blocks() -> None:
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(minutes=RESTART_COOLDOWN_MINUTES - 2)).isoformat()
+    assert _restart_cooldown_ok({"last_restart": recent}, now) is False
+
+
+def test_restart_cooldown_old_allows() -> None:
+    now = datetime.now(timezone.utc)
+    old = (now - timedelta(minutes=RESTART_COOLDOWN_MINUTES + 5)).isoformat()
+    assert _restart_cooldown_ok({"last_restart": old}, now) is True
+
+
+def test_restart_cooldown_malformed_allows() -> None:
+    assert _restart_cooldown_ok({"last_restart": "garbage"}) is True

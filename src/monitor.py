@@ -12,10 +12,15 @@ Health checks:
     1. Claude Code-prosess lever (pgrep claude --channels)
     2. tmux-sesjon "trening" lever
     3. Ingen nylig "API Error: 401" i pane-output (auth-fail)
+    3b. Plugin disconnect (bun-bot respawnet uten at Claude reconnectet)
     4. api.telegram.org nåbar (TCP connect)
+    5. Sync har kjørt vellykket siste SYNC_STALE_HOURS timer
 
 Dedupe: hver alert-type sendes maks én gang per 30 min.
-Auto-recovery: process_dead → kickstart bot.
+Auto-recovery:
+    process_dead / tmux_dead → kickstart bot
+    plugin_disconnect        → full tmux-restart (cooldown RESTART_COOLDOWN_MINUTES)
+    sync_stale               → kickstart sync
 """
 
 from __future__ import annotations
@@ -52,8 +57,19 @@ PANE_TAIL_LINES = 200
 # Claude-prosess-identifikator (matches "claude --channels plugin:...")
 CLAUDE_PROCESS_PATTERN = "claude --channels plugin:telegram"
 
+# Telegram-bot (bun MCP-server) prosess-identifikator
+BOT_PROCESS_PATTERN = "bun server.ts"
+
 # Sync-staleness: hvis ingen vellykket sync_run siste N timer → flagg
 SYNC_STALE_HOURS = 12
+
+# Plugin-disconnect: hvis bun-bot er > N sek yngre enn Claude-prosessen,
+# har bun respawnet uten at Claude reconnectet → plugin er disconnected.
+# I en frisk synkron oppstart er differansen ~1-40 sek.
+PLUGIN_AGE_SKEW_SEC = 120
+
+# Minste tid mellom auto-restarts av tmux (hindrer restart-loop)
+RESTART_COOLDOWN_MINUTES = 8
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +96,98 @@ def find_claude_process() -> int | None:
     pids = result.stdout.strip().split("\n")
     pids = [p for p in pids if p.strip()]
     return int(pids[0]) if pids else None
+
+
+def find_bot_process() -> int | None:
+    """Returner PID av bun-bot-prosessen (Telegram MCP-server), eller None."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", BOT_PROCESS_PATTERN],
+            capture_output=True, text=True, timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    pids = [p for p in result.stdout.strip().split("\n") if p.strip()]
+    return int(pids[0]) if pids else None
+
+
+def _parse_etime(etime: str) -> float | None:
+    """Parse `ps -o etime`-format til sekunder.
+
+    Format: [[DD-]HH:]MM:SS  (macOS/BSD ps støtter ikke `etimes`).
+    Eksempler: '42:19' → 2539s, '1:23:45' → 5025s, '3-00:15:32' → 260132s.
+    """
+    etime = etime.strip()
+    if not etime:
+        return None
+    days = 0
+    if "-" in etime:
+        day_part, etime = etime.split("-", 1)
+        try:
+            days = int(day_part)
+        except ValueError:
+            return None
+    parts = etime.split(":")
+    try:
+        nums = [int(p) for p in parts]
+    except ValueError:
+        return None
+    if len(nums) == 2:       # MM:SS
+        h, m, s = 0, nums[0], nums[1]
+    elif len(nums) == 3:     # HH:MM:SS
+        h, m, s = nums
+    else:
+        return None
+    return days * 86400 + h * 3600 + m * 60 + s
+
+
+def process_age_seconds(pid: int) -> float | None:
+    """Returner prosessens alder i sekunder via `ps -o etime=`."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "etime=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    return _parse_etime(result.stdout)
+
+
+def plugin_out_of_sync() -> bool:
+    """True hvis bun-bot er vesentlig yngre enn Claude — dvs. bun respawnet
+    uten at Claude reconnectet til den nye MCP-instansen (plugin disconnect).
+
+    I en frisk synkron oppstart starter Claude først og spawner bun noen sek
+    senere, så Claude er alltid LITT eldre (~1-40 sek). Hvis Claude er
+    > PLUGIN_AGE_SKEW_SEC eldre enn bun, har bun krasjet og respawnet alene.
+    """
+    claude_pid = find_claude_process()
+    bot_pid = find_bot_process()
+    if claude_pid is None or bot_pid is None:
+        return False
+    claude_age = process_age_seconds(claude_pid)
+    bot_age = process_age_seconds(bot_pid)
+    if claude_age is None or bot_age is None:
+        return False
+    return (claude_age - bot_age) > PLUGIN_AGE_SKEW_SEC
+
+
+def has_plugin_disconnect(pane_output: str, recent_lines: int = 40) -> bool:
+    """Sjekk om de siste pane-linjene inneholder Claudes egne disconnect-fraser.
+
+    Komplementær til plugin_out_of_sync() — fanger tilfeller der Claude
+    eksplisitt rapporterer at den ikke fikk sendt svar."""
+    tail = "\n".join(pane_output.splitlines()[-recent_lines:]).lower()
+    phrases = [
+        "telegram-tilkoblingen",
+        "telegram-pluginen",
+        "telegram-kanalen falt ut",
+        "kanalen falt ut",
+        "pluginen har koblet fra",
+        "pluginen disconnecta",
+        "tilkoblingen ser ut til å ha droppet",
+    ]
+    return any(p in tail for p in phrases)
 
 
 def tmux_session_alive() -> bool:
@@ -190,6 +298,19 @@ def check_health() -> list[Issue]:
             ),
             auto_recoverable=False,
         ))
+        # Ikke restart for plugin-disconnect samtidig — 401 må fikses manuelt
+        return issues
+
+    # Check 3b: plugin disconnect (bun respawnet uten at Claude reconnectet)
+    if plugin_out_of_sync() or has_plugin_disconnect(pane):
+        issues.append(Issue(
+            type="plugin_disconnect",
+            message=(
+                "Telegram-plugin disconnected — bun-bot respawnet uten at "
+                "Claude reconnectet. Auto-restart av tmux-sesjon utføres."
+            ),
+            auto_recoverable=True,
+        ))
 
     # Check 4: Telegram-tilkobling
     if not telegram_reachable():
@@ -253,6 +374,19 @@ def should_alert(state: dict, issue_type: str, now: datetime | None = None) -> b
 def mark_alerted(state: dict, issue_type: str, now: datetime | None = None) -> None:
     now = now or datetime.now(timezone.utc)
     state.setdefault("last_alerts", {})[issue_type] = now.isoformat()
+
+
+def _restart_cooldown_ok(state: dict, now: datetime | None = None) -> bool:
+    """True hvis det er lenge nok siden forrige auto-restart (unngå loop)."""
+    now = now or datetime.now(timezone.utc)
+    last = state.get("last_restart")
+    if not last:
+        return True
+    try:
+        last_ts = datetime.fromisoformat(last.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return True
+    return (now - last_ts) >= timedelta(minutes=RESTART_COOLDOWN_MINUTES)
 
 
 # ---------------------------------------------------------------------------
@@ -325,24 +459,79 @@ def send_telegram_alert(message: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def try_auto_recover(issue_type: str) -> bool:
+def _kickstart_bot() -> bool:
+    """launchctl kickstart com.trening.bot. Returner True ved forsøk utført."""
+    uid = os.getuid()
+    try:
+        result = subprocess.run(
+            ["launchctl", "kickstart", "-k", f"gui/{uid}/com.trening.bot"],
+            capture_output=True, text=True, timeout=10,
+        )
+        print(f"[monitor] launchctl kickstart bot → rc={result.returncode} "
+              f"{result.stdout.strip()}")
+        return True
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"[monitor] kickstart feilet: {e}", file=sys.stderr)
+        return False
+
+
+def _full_restart_bot() -> bool:
+    """Drep tmux-sesjon + bun-prosesser, så kickstart bot.
+
+    Brukes for plugin_disconnect: tvinger Claude OG bun til å starte på nytt
+    sammen, slik at plugin-tilkoblingen er synk. En enkel kickstart holder
+    ikke — start-bot.sh ser at tmux allerede lever og gjør ingenting.
+    """
+    # 1. Drep tmux-sesjonen (river med seg Claude + barn)
+    try:
+        subprocess.run(
+            ["tmux", "-S", TMUX_SOCKET, "kill-session", "-t", TMUX_SESSION],
+            capture_output=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    # 2. Rydd opp evt. foreldreløse bun-prosesser
+    for pattern in ("bun server.ts", "bun run --cwd.*telegram"):
+        try:
+            subprocess.run(["pkill", "-f", pattern], capture_output=True, timeout=5)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+    time.sleep(2)
+    # 3. Kickstart launchd-jobben → start-bot.sh lager ny tmux + Claude + bun
+    ok = _kickstart_bot()
+    # 4. kickstart er treg (start-bot.sh venter på nett). Verifiser at tmux
+    #    faktisk kommer opp; hvis ikke innen ~8 sek, kjør start-bot.sh direkte.
+    time.sleep(8)
+    if not tmux_session_alive():
+        script = APP_SUPPORT / "scripts" / "start-bot.sh"
+        if script.exists():
+            try:
+                subprocess.run(["bash", str(script)], capture_output=True, timeout=90)
+                print("[monitor] kickstart traff ikke — kjørte start-bot.sh direkte")
+                ok = True
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"[monitor] start-bot.sh fallback feilet: {e}", file=sys.stderr)
+    print("[monitor] Full restart (plugin_disconnect): tmux drept + restartet")
+    return ok
+
+
+def try_auto_recover(issue_type: str, state: dict | None = None) -> bool:
     """Forsøk å auto-fikse kjente issues. Returner True ved forsøk utført."""
     if issue_type == "process_dead":
-        uid = os.getuid()
-        try:
-            result = subprocess.run(
-                ["launchctl", "kickstart", "-k", f"gui/{uid}/com.trening.bot"],
-                capture_output=True, text=True, timeout=10,
-            )
-            print(f"[monitor] Auto-recover attempt: launchctl kickstart → "
-                  f"rc={result.returncode} {result.stdout.strip()}")
-            return True
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            print(f"[monitor] Auto-recover feilet: {e}", file=sys.stderr)
-            return False
+        return _kickstart_bot()
     if issue_type == "tmux_dead":
         # Samme fiks — kickstart bot som sjekker/lager tmux-sesjon
-        return try_auto_recover("process_dead")
+        return _kickstart_bot()
+    if issue_type == "plugin_disconnect":
+        # Cooldown: ikke restart oftere enn RESTART_COOLDOWN_MINUTES
+        if state is not None and not _restart_cooldown_ok(state):
+            print("[monitor] plugin_disconnect oppdaget, men restart-cooldown "
+                  "aktiv — hopper over")
+            return False
+        ok = _full_restart_bot()
+        if state is not None and ok:
+            state["last_restart"] = datetime.now(timezone.utc).isoformat()
+        return ok
     if issue_type == "sync_stale":
         uid = os.getuid()
         try:
@@ -377,14 +566,17 @@ def main() -> int:
 
     for issue in issues:
         if issue.auto_recoverable:
-            if try_auto_recover(issue.type):
+            if try_auto_recover(issue.type, state):
                 recovered.append(issue.type)
 
         if should_alert(state, issue.type, now):
             # Inkluder auto-recovery-status i alerten
             extra = ""
             if issue.type in recovered:
-                extra = "\n\n🔧 Auto-recovery-forsøk utført (launchctl kickstart bot). Sjekk igjen om noen minutter."
+                if issue.type == "plugin_disconnect":
+                    extra = "\n\n🔧 Auto-restartet tmux-sesjon. Bot bør svare igjen om ~45 sek."
+                else:
+                    extra = "\n\n🔧 Auto-recovery-forsøk utført (launchctl kickstart bot). Sjekk igjen om noen minutter."
 
             if send_telegram_alert(issue.message + extra):
                 mark_alerted(state, issue.type, now)
