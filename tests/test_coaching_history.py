@@ -7,6 +7,7 @@ identifiserer riktig topp-sett.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 
 import pytest
 
@@ -17,6 +18,13 @@ from src.coaching.history import (
 )
 from src.db.connection import configure
 from src.db.migrations import migrate
+
+
+RECENT_DATE = date.today() - timedelta(days=1)
+
+
+def _started_at(day: date) -> str:
+    return f"{day.isoformat()}T10:00:00Z"
 
 
 @pytest.fixture
@@ -68,8 +76,8 @@ def _insert_session(
 def test_last_top_set_picks_heaviest_with_most_reps(conn) -> None:
     _insert_session(
         conn,
-        started_at="2026-04-20T10:00:00Z",
-        local_date="2026-04-20",
+        started_at=_started_at(RECENT_DATE),
+        local_date=RECENT_DATE.isoformat(),
         sets=[
             ("Bench Press", 1, 8, 80.0, 7),
             ("Bench Press", 2, 8, 80.0, 8),
@@ -83,23 +91,24 @@ def test_last_top_set_picks_heaviest_with_most_reps(conn) -> None:
 
 
 def test_last_top_set_picks_most_recent_session(conn) -> None:
+    older_date = RECENT_DATE - timedelta(days=8)
     _insert_session(
-        conn, "2026-04-10T10:00:00Z", "2026-04-10",
+        conn, _started_at(older_date), older_date.isoformat(),
         [("Bench Press", 1, 10, 75.0, 8)],
     )
     _insert_session(
-        conn, "2026-04-18T10:00:00Z", "2026-04-18",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Bench Press", 1, 6, 80.0, 8)],
     )
     top = last_top_set(conn, "Bench Press")
     assert top["weight_kg"] == 80.0
     assert top["reps"] == 6
-    assert top["local_date"] == "2026-04-18"
+    assert top["local_date"] == RECENT_DATE.isoformat()
 
 
 def test_last_top_set_case_insensitive(conn) -> None:
     _insert_session(
-        conn, "2026-04-20T10:00:00Z", "2026-04-20",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Bench Press", 1, 8, 80.0, 7)],
     )
     assert last_top_set(conn, "bench press") is not None
@@ -108,7 +117,7 @@ def test_last_top_set_case_insensitive(conn) -> None:
 
 def test_last_top_set_none_for_unknown_exercise(conn) -> None:
     _insert_session(
-        conn, "2026-04-20T10:00:00Z", "2026-04-20",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Bench Press", 1, 8, 80.0, 7)],
     )
     assert last_top_set(conn, "Deadlift") is None
@@ -116,7 +125,6 @@ def test_last_top_set_none_for_unknown_exercise(conn) -> None:
 
 def test_last_top_set_respects_within_days(conn) -> None:
     # Bruk dagens dato for å unngå date-drift i testen
-    from datetime import date, timedelta
     today = date.today()
     yesterday = today - timedelta(days=1)
     _insert_session(
@@ -146,12 +154,12 @@ def test_last_top_set_respects_within_days(conn) -> None:
 
 def test_last_top_set_excludes_superseded(conn) -> None:
     wid1 = _insert_session(
-        conn, "2026-04-20T10:00:00Z", "2026-04-20",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Pull Up", 1, 10, None, 7)],
         source="strength",
     )
     wid2 = _insert_session(
-        conn, "2026-04-20T11:00:00Z", "2026-04-20",
+        conn, f"{RECENT_DATE.isoformat()}T11:00:00Z", RECENT_DATE.isoformat(),
         [("Pull Up", 1, 5, 20.0, 8)],
         source="hevy",
     )
@@ -168,7 +176,7 @@ def test_last_top_set_excludes_superseded(conn) -> None:
 
 def test_bodyweight_set_returns_none_weight(conn) -> None:
     _insert_session(
-        conn, "2026-04-20T10:00:00Z", "2026-04-20",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Push Up", 1, 20, None, 6)],
     )
     top = last_top_set(conn, "Push Up")
@@ -182,12 +190,13 @@ def test_bodyweight_set_returns_none_weight(conn) -> None:
 
 
 def test_sessions_count(conn) -> None:
+    older_date = RECENT_DATE - timedelta(days=8)
     _insert_session(
-        conn, "2026-04-10T10:00:00Z", "2026-04-10",
+        conn, _started_at(older_date), older_date.isoformat(),
         [("Bench Press", 1, 8, 80, 7)],
     )
     _insert_session(
-        conn, "2026-04-18T10:00:00Z", "2026-04-18",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Bench Press", 1, 6, 80, 8),
          ("Bench Press", 2, 6, 80, 9)],
     )
@@ -200,12 +209,13 @@ def test_sessions_count(conn) -> None:
 
 
 def test_known_exercises_lists_and_sorts(conn) -> None:
+    older_date = RECENT_DATE - timedelta(days=8)
     _insert_session(
-        conn, "2026-04-10T10:00:00Z", "2026-04-10",
+        conn, _started_at(older_date), older_date.isoformat(),
         [("Bench Press", 1, 8, 80, 7)],
     )
     _insert_session(
-        conn, "2026-04-20T10:00:00Z", "2026-04-20",
+        conn, _started_at(RECENT_DATE), RECENT_DATE.isoformat(),
         [("Squat", 1, 5, 100, 8),
          ("Squat", 2, 5, 100, 8)],
     )
@@ -213,5 +223,5 @@ def test_known_exercises_lists_and_sorts(conn) -> None:
     assert len(rows) == 2
     # Nyeste først
     assert rows[0]["exercise"] == "Squat"
-    assert rows[0]["last_seen"] == "2026-04-20"
+    assert rows[0]["last_seen"] == RECENT_DATE.isoformat()
     assert rows[1]["exercise"] == "Bench Press"

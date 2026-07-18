@@ -210,6 +210,29 @@ The `com.trening.bot` launchd job automatically starts Claude Code inside
 a detached tmux session at login and re-checks every minute. If the bot
 crashes or you restart your Mac, it comes back up within ~60 seconds.
 
+## Linux VPS deployment (data layer)
+
+The repository also includes a first Linux deployment path under
+[`systemd/`](systemd/). It replaces the deterministic macOS jobs with
+systemd units for hourly sync, nightly SQLite backup, and the optional weekly
+plan proposal. The Claude Code/tmux monitor is intentionally not moved: it is
+specific to the old bot architecture and will be replaced by the future
+dashboard/coach health checks.
+
+Runtime paths are configurable without changing code:
+
+| Variable | Purpose | Linux service value |
+| --- | --- | --- |
+| `TRENING_DATA_DIR` | DB, credentials, FIT files, and backups | `/var/lib/trening` |
+| `TRENING_LOG_DIR` | Application logs | `/var/log/trening` |
+| `TRENING_CACHE_DIR` | Disposable caches | `/var/cache/trening` |
+
+When unset, macOS keeps its existing `~/Library/.../Trening` locations. See
+[`systemd/README.md`](systemd/README.md) for provisioning, verification, and
+the safe migration order. Do not disable the Mac jobs or run two persistent
+syncs against copied OAuth credentials until the first VPS sync and backup
+have been verified.
+
 ## Daily usage
 
 ### Via Telegram
@@ -241,6 +264,10 @@ uv run python -m src.cli.wellness log --sleep 8 --soreness 3 --motivation 8 --en
 | FIT files + backups | `~/Library/Application Support/Trening/fit_files/` + `backups/` |
 | Logs | `~/Library/Logs/Trening/` |
 | Screenshot cache | `~/Library/Caches/Trening/` |
+
+On Linux, these can be redirected with `TRENING_DATA_DIR`,
+`TRENING_LOG_DIR`, and `TRENING_CACHE_DIR`; the supplied systemd units use
+`/var/lib/trening`, `/var/log/trening`, and `/var/cache/trening`.
 
 ## Restore from backup
 

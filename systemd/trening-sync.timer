@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Trening health-data sync every hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+RandomizedDelaySec=2min
+Unit=trening-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Trening SQLite backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=trening-backup.service
+
+[Install]
+WantedBy=timers.target

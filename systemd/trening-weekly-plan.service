@@ -1,0 +1,24 @@
+[Unit]
+Description=Send Trening weekly-plan proposal
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=trening
+Group=trening
+WorkingDirectory=/opt/trening/app
+Environment=PYTHONPATH=/opt/trening/app
+Environment=TRENING_DATA_DIR=/var/lib/trening
+Environment=TRENING_LOG_DIR=/var/log/trening
+Environment=TRENING_CACHE_DIR=/var/cache/trening
+ExecStart=/opt/trening/app/.venv/bin/python -m src.weekly_plan
+StateDirectory=trening
+LogsDirectory=trening
+CacheDirectory=trening
+UMask=0077
+Nice=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
