@@ -219,6 +219,33 @@ plan proposal. The Claude Code/tmux monitor is intentionally not moved: it is
 specific to the old bot architecture and will be replaced by the future
 dashboard/coach health checks.
 
+### Mac as off-server backup target
+
+After the VPS data layer is live, a separate macOS launch agent can pull the
+finished SQLite backups over Tailscale whenever the Mac is on. It does not
+restart the old Mac sync or bot jobs.
+
+First add the VPS service group as a read-only backup group member and make
+the backup directory group-readable (never the credentials directory):
+
+```bash
+sudo usermod -aG trening petter
+sudo install -d -o trening -g trening -m 0750 /var/lib/trening/backups
+sudo find /var/lib/trening/backups -maxdepth 1 -type f -name '*.db' -exec chmod 640 {} \;
+```
+
+Then store the existing SSH key in the macOS Keychain and install the pull
+agent:
+
+```bash
+ssh-add --apple-use-keychain ~/.ssh/trening_vps
+cd ~/Documents/Prosjekter/Trening
+uv run python -m launchd.install_vps_backup install --host <VPS_TAILSCALE_IP>
+```
+
+The agent runs at login and then every 24 hours. It stores copies in
+`~/Library/Application Support/Trening/offsite-vps-backups/`.
+
 Runtime paths are configurable without changing code:
 
 | Variable | Purpose | Linux service value |
