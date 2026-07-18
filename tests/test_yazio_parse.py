@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.sources.yazio import (
     parse_yazio_consumed,
     parse_yazio_daily,
@@ -15,7 +17,17 @@ FIX = Path("tests/fixtures/yazio/raw")
 
 
 def _summary(date_str: str) -> dict:
-    return json.loads((FIX / f"daily_summary_{date_str}.json").read_text())
+    path = FIX / f"daily_summary_{date_str}.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Yazio-fixture mangler: {path}")
+    return json.loads(path.read_text())
+
+
+def _consumed(date_str: str) -> dict:
+    path = FIX / f"consumed_items_{date_str}.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Yazio-fixture mangler: {path}")
+    return json.loads(path.read_text())
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +107,7 @@ def test_parse_meals_unused_meals_have_zero_not_none() -> None:
 
 def test_parse_consumed_empty_day() -> None:
     """2026-04-19: ingen consumed items (bruker startet logging 20. april)."""
-    consumed = json.loads((FIX / "consumed_items_2026-04-19.json").read_text())
+    consumed = _consumed("2026-04-19")
     rows = parse_yazio_consumed("2026-04-19", consumed)
     assert rows == []
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.sources.concept2 import (
     parse_concept2_intervals,
     parse_concept2_session,
@@ -14,7 +16,10 @@ FIX = Path("tests/fixtures/concept2/raw")
 
 
 def _load_detail() -> dict:
-    data = json.loads((FIX / "result_115541952_detail.json").read_text())
+    path = FIX / "result_115541952_detail.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Concept2-fixture mangler: {path}")
+    data = json.loads(path.read_text())
     return data["data"]
 
 

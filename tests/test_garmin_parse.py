@@ -21,7 +21,10 @@ FIX = Path("tests/fixtures/garmin/raw")
 
 
 def _load(name: str):
-    return json.loads((FIX / name).read_text())
+    path = FIX / name
+    if not path.is_file():
+        pytest.skip(f"Privat Garmin-fixture mangler: {path}")
+    return json.loads(path.read_text())
 
 
 # ---------------------------------------------------------------------------

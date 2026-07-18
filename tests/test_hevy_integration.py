@@ -40,8 +40,15 @@ class _FakeResp:
         return self._payload
 
 
+def _load_workouts_payload() -> dict:
+    path = FIX / "workouts_page.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Hevy-fixture mangler: {path}")
+    return json.loads(path.read_text())
+
+
 def test_fetch_workouts_inserts_canonical_rows(conn, monkeypatch) -> None:
-    payload = json.loads((FIX / "workouts_page.json").read_text())
+    payload = _load_workouts_payload()
 
     def fake_get(url, headers=None, params=None, timeout=None):
         return _FakeResp(payload)
@@ -88,7 +95,7 @@ def test_fetch_workouts_inserts_canonical_rows(conn, monkeypatch) -> None:
 
 def test_fetch_workouts_idempotent_rerun(conn, monkeypatch) -> None:
     """Å kjøre sync to ganger skal ikke duplisere — andre kjøring er upd=1."""
-    payload = json.loads((FIX / "workouts_page.json").read_text())
+    payload = _load_workouts_payload()
 
     def fake_get(url, headers=None, params=None, timeout=None):
         return _FakeResp(payload)

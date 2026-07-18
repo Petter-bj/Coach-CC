@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.sources.withings import parse_measure_group, _decode
 
 FIX = Path("tests/fixtures/withings/raw")
 
 
 def _load_measurements():
-    return json.loads((FIX / "measurements_last_30d.json").read_text())
+    path = FIX / "measurements_last_30d.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Withings-fixture mangler: {path}")
+    return json.loads(path.read_text())
 
 
 def test_decode_weight_example() -> None:

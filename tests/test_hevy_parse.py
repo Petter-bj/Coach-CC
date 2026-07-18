@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.sources.hevy import (
     _duration_sec,
     _epley,
@@ -17,7 +19,10 @@ FIX = Path("tests/fixtures/hevy/raw")
 
 
 def _load_workout() -> dict:
-    data = json.loads((FIX / "workouts_page.json").read_text())
+    path = FIX / "workouts_page.json"
+    if not path.is_file():
+        pytest.skip(f"Privat Hevy-fixture mangler: {path}")
+    data = json.loads(path.read_text())
     return data["workouts"][0]
 
 
