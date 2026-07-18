@@ -12,6 +12,25 @@ from pathlib import Path
 import pytest
 
 from src.cli._common import parse_range
+from src.db.connection import configure
+from src.db.migrations import migrate
+
+
+@pytest.fixture(autouse=True)
+def isolated_cli_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gi hver CLI-subprosess en tom, ferdig migrert database.
+
+    CLI-ene leser standardstien fra ``TRENING_DATA_DIR`` i en ny Python-prosess.
+    Uten dette skjulte testene seg bak utviklerens lokale health.db og feilet på
+    en ny maskin før databasen var initialisert.
+    """
+    data_dir = tmp_path / "trening-data"
+    data_dir.mkdir()
+    db_path = data_dir / "health.db"
+    with sqlite3.connect(db_path) as conn:
+        configure(conn)
+        migrate(conn)
+    monkeypatch.setenv("TRENING_DATA_DIR", str(data_dir))
 
 
 # ---------------------------------------------------------------------------
