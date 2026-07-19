@@ -136,11 +136,31 @@ def test_reconcile_dry_run_does_not_apply(conn) -> None:
 
 
 def test_reconcile_skips_already_completed(conn) -> None:
-    _add_planned(conn, 3, "easy_run", status="completed")
-    _add_workout(conn, 3, "running")
+    plan_id = _add_planned(conn, 3, "easy_run", status="completed")
+    workout_id = _add_workout(conn, 3, "running")
+    conn.execute(
+        "UPDATE planned_sessions SET workout_id = ? WHERE id = ?",
+        (workout_id, plan_id),
+    )
+    conn.commit()
     result = reconcile_planned_sessions(conn, since_days_ago=7)
     assert result.already_completed == 1
     assert result.matched == 0
+
+
+def test_reconcile_backfills_workout_for_completed_session(conn) -> None:
+    plan_id = _add_planned(conn, 3, "easy_run", status="completed")
+    workout_id = _add_workout(conn, 3, "running")
+
+    result = reconcile_planned_sessions(conn, since_days_ago=7, apply=True)
+
+    assert result.matched == 1
+    assert result.backfilled == 1
+    row = conn.execute(
+        "SELECT status, workout_id FROM planned_sessions WHERE id = ?", (plan_id,)
+    ).fetchone()
+    assert row["status"] == "completed"
+    assert row["workout_id"] == workout_id
 
 
 def test_reconcile_unmatched_when_no_workout(conn) -> None:

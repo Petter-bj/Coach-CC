@@ -145,7 +145,8 @@ def _run_sync(args) -> None:
         rec = reconcile_planned_sessions(conn, since_days_ago=30, apply=True)
         if rec.matched > 0:
             print(f"[reconcile-plan] {rec.matched} planned sessions matched "
-                  f"({rec.unmatched} unmatched, {rec.already_completed} already done)")
+                  f"({rec.unmatched} unmatched, {rec.already_completed} already done, "
+                  f"{rec.backfilled} backfilled)")
 
         reviews_created = ensure_pending_reviews(conn, since_days_ago=30)
         if reviews_created:

@@ -6,7 +6,8 @@ adherence fra DB) tror du ikke har fullført noe.
 
 Denne modulen kjører etter hver sync: matcher `planned_sessions` med
 `workouts` på dato + type-familie, setter status='completed' og fyller
-`workout_id`.
+`workout_id`. Den etterfyller også `workout_id` for eldre, manuelt markerte
+completed-økter, slik at de kan få en automatisk review senere.
 
 Kjøres automatisk i `sync.py` etter baselines. Også eksponert som CLI:
     src.cli.plan reconcile [--since YYYY-MM-DD] [--apply]
@@ -62,6 +63,7 @@ class ReconcileResult:
     unmatched: int = 0
     no_type_map: int = 0
     already_completed: int = 0
+    backfilled: int = 0
     rows_examined: int = 0
     matches: list[tuple[int, int, str]] | None = None  # (plan_id, workout_id, plan_type)
 
@@ -94,7 +96,10 @@ def reconcile_planned_sessions(
 
     for p in rows:
         result.rows_examined += 1
-        if p["status"] == "completed":
+        # En allerede fullført økt med workout_id er ferdig behandlet. Eldre
+        # manuelt markerte completed-rader kan derimot mangle koblingen;
+        # la dem gå gjennom matchen for å etterfylle den uten å endre status.
+        if p["status"] == "completed" and p["workout_id"] is not None:
             result.already_completed += 1
             continue
 
@@ -128,6 +133,8 @@ def reconcile_planned_sessions(
 
         result.matches.append((p["id"], workout["id"], plan_type))
         result.matched += 1
+        if p["status"] == "completed":
+            result.backfilled += 1
 
     if apply and result.matches:
         for plan_id, workout_id, _type in result.matches:
