@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Trening" />
-    <title>Trening — preview</title>
+    <title>Trening</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -47,14 +47,14 @@
               </div>
               <div class="coach-copy">
                 <p class="eyebrow pink">COACH</p>
-                <h2>Kroppen din er klar — kjør terskeløkta som planlagt.</h2>
-                <p>Restitusjonen ligger 9 poeng over baseline, HRV er høy og søvnen var god. Alle tre signalene peker mot at du tåler kvalitet i dag. Økta ligger klar på klokken.</p>
+                <h2 data-recommendation-title>Kroppen din er klar — kjør terskeløkta som planlagt.</h2>
+                <p data-recommendation-rationale>Restitusjonen ligger 9 poeng over baseline, HRV er høy og søvnen var god. Alle tre signalene peker mot at du tåler kvalitet i dag. Økta ligger klar på klokken.</p>
               </div>
             </div>
             <div class="signal-pills" aria-label="Grunnlaget for anbefalingen">
-              <span><i class="green"></i>Restitusjon <strong>84 (+9)</strong></span>
-              <span><i class="green"></i>HRV <strong>73 ms · høy</strong></span>
-              <span><i class="pink-dot"></i>Søvn <strong>7 t 48 m · 90 %</strong></span>
+              <span><i class="green"></i>Restitusjon <strong data-signal="readiness">84 (+9)</strong></span>
+              <span><i class="green"></i>HRV <strong data-signal="hrv">73 ms · høy</strong></span>
+              <span><i class="pink-dot"></i>Søvn <strong data-signal="sleep">7 t 48 m · 90 %</strong></span>
             </div>
             <form class="chat-input" id="chat-form">
               <label class="sr-only" for="chat-message">Spør eller juster økten</label>
@@ -87,15 +87,15 @@
             </div>
           </article>
 
-          <article class="card workout-card">
+          <article class="card workout-card" data-workout-card>
             <div class="workout-copy">
-              <p class="eyebrow">DAGENS ØKT · SØNDAG 19. JULI</p>
-              <h2>Kontrollert terskel</h2>
-              <p>6 × 3 min @ terskel · 2 min rolig mellom dragene</p>
+              <p class="eyebrow" data-workout-date>DAGENS ØKT · SØNDAG 19. JULI</p>
+              <h2 data-workout-title>Kontrollert terskel</h2>
+              <p data-workout-description>6 × 3 min @ terskel · 2 min rolig mellom dragene</p>
             </div>
             <div class="workout-stats">
-              <div><strong>54 min</strong><span>VARIGHET</span></div>
-              <div><strong>Moderat+</strong><span>INTENSITET</span></div>
+              <div><strong data-workout-duration>54 min</strong><span>VARIGHET</span></div>
+              <div><strong data-workout-intensity>Moderat+</strong><span>INTENSITET</span></div>
             </div>
             <div class="workout-actions">
               <span class="garmin-status">Sendt til Garmin</span>
@@ -103,35 +103,35 @@
             </div>
           </article>
 
-          <button class="source-status" type="button" data-view="Synkronisering"><i></i>Oppdatert fra Garmin 06:20</button>
+          <button class="source-status" type="button" data-view="Synkronisering"><i></i><span data-sync-status>Oppdatert fra Garmin 06:20</span></button>
 
           <section class="metrics-grid" aria-label="Dagens signaler">
             <article class="card metric-card recovery-card">
               <p class="eyebrow">RESTITUSJON</p>
-              <strong class="metric-value green-text">84<span>/100</span></strong>
-              <div class="recovery-track"><i></i></div>
-              <p class="metric-foot">+9 over din baseline</p>
+              <strong class="metric-value green-text" data-metric-readiness>84<span>/100</span></strong>
+              <div class="recovery-track"><i data-readiness-track></i></div>
+              <p class="metric-foot" data-metric-readiness-foot>+9 over din baseline</p>
             </article>
             <article class="card metric-card">
-              <div class="metric-label"><p class="eyebrow">SØVN</p><span class="positive">↑ 28 min</span></div>
-              <strong class="metric-value">7:48<span>t</span></strong>
-              <p class="metric-foot">90 % effektivitet</p>
+              <div class="metric-label"><p class="eyebrow">SØVN</p><span class="positive" data-metric-sleep-delta>↑ 28 min</span></div>
+              <strong class="metric-value" data-metric-sleep>7:48<span>t</span></strong>
+              <p class="metric-foot" data-metric-sleep-foot>90 % effektivitet</p>
             </article>
             <article class="card metric-card">
-              <div class="metric-label"><p class="eyebrow">HRV</p><span class="positive">↑ 7 ms</span></div>
-              <strong class="metric-value">73<span>ms</span></strong>
-              <p class="metric-foot">Baseline 66 ms</p>
+              <div class="metric-label"><p class="eyebrow">HRV</p><span class="positive" data-metric-hrv-delta>↑ 7 ms</span></div>
+              <strong class="metric-value" data-metric-hrv>73<span>ms</span></strong>
+              <p class="metric-foot" data-metric-hrv-foot>Baseline 66 ms</p>
             </article>
             <article class="card metric-card">
-              <div class="metric-label"><p class="eyebrow">HVILEPULS</p><span class="positive">↓ 3 bpm</span></div>
-              <strong class="metric-value">47<span>bpm</span></strong>
-              <p class="metric-foot">Baseline 50 bpm</p>
+              <div class="metric-label"><p class="eyebrow">HVILEPULS</p><span class="positive" data-metric-rhr-delta>↓ 3 bpm</span></div>
+              <strong class="metric-value" data-metric-rhr>47<span>bpm</span></strong>
+              <p class="metric-foot" data-metric-rhr-foot>Baseline 50 bpm</p>
             </article>
           </section>
 
           <article class="card week-card">
-            <div class="week-header"><div><p class="eyebrow">DENNE UKEN</p><p class="week-summary"><strong>3 av 5</strong> økter gjennomført · 2 t 46 min</p></div><button class="plan-link" type="button" data-view="Hele planen">Se hele planen <span>→</span></button></div>
-            <div class="week-days" aria-label="Ukeplan">
+            <div class="week-header"><div><p class="eyebrow">DENNE UKEN</p><p class="week-summary" data-week-summary><strong>3 av 5</strong> økter gjennomført · 2 t 46 min</p></div><button class="plan-link" type="button" data-view="Hele planen">Se hele planen <span>→</span></button></div>
+            <div class="week-days" aria-label="Ukeplan" data-week-days>
               <div class="day done"><span>MAN</span><i>✓</i></div><div class="day done"><span>TIR</span><i>✓</i></div><div class="day rest"><span>ONS</span><i>·</i></div><div class="day done"><span>TOR</span><i>✓</i></div><div class="day done"><span>FRE</span><i>✓</i></div><div class="day review" data-day="lørdag"><span>LØR</span><i>!</i></div><div class="day today"><span>SØN</span><i>↗</i></div>
             </div>
           </article>

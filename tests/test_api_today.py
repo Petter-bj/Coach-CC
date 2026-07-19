@@ -119,7 +119,7 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["reviews"] == []
 
 
-def test_today_endpoint_requires_configured_bearer_token(tmp_path) -> None:
+def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> None:
     db_path = tmp_path / "trening.db"
     conn = sqlite3.connect(db_path)
     configure(conn)
@@ -127,22 +127,30 @@ def test_today_endpoint_requires_configured_bearer_token(tmp_path) -> None:
     _seed(conn, date(2026, 7, 19))
     conn.close()
 
-    async def request_today() -> tuple[httpx.Response, httpx.Response]:
+    async def request_today() -> tuple[httpx.Response, httpx.Response, httpx.Response, httpx.Response]:
         transport = httpx.ASGITransport(
             app=create_app(db_path=db_path, api_token="test-token")
         )
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
+            dashboard = await client.get("/")
             denied = await client.get("/api/today?day=2026-07-19")
             allowed = await client.get(
                 "/api/today?day=2026-07-19",
                 headers={"Authorization": "Bearer test-token"},
             )
-        return denied, allowed
+            tailscale_allowed = await client.get(
+                "/api/today?day=2026-07-19",
+                headers={"Tailscale-User-Login": "petter@example.com"},
+            )
+        return dashboard, denied, allowed, tailscale_allowed
 
-    denied, allowed = asyncio.run(request_today())
+    dashboard, denied, allowed, tailscale_allowed = asyncio.run(request_today())
 
+    assert dashboard.status_code == 200
+    assert "God morgen, Petter" in dashboard.text
     assert denied.status_code == 401
     assert allowed.status_code == 200
     assert allowed.json()["metrics"]["sleep"]["duration_sec"] == 28080
+    assert tailscale_allowed.status_code == 200

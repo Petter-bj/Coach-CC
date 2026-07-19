@@ -56,12 +56,18 @@ other's credentials.
 
 ## Private dashboard API
 
-`trening-api.service` binds Uvicorn to `127.0.0.1:8080`; it is deliberately
-not exposed on the public interface. A later Tailscale-only reverse proxy will
-be the only route from the phone to this port.
+`trening-api.service` serves both dashboardets statiske filer og `/api/*` fra
+`127.0.0.1:8080`; den er bevisst ikke eksponert på det offentlige
+nettverksgrensesnittet. Tailscale Serve blir den eneste ruten fra telefonen.
 
-Before enabling it, create a distinct API secret on the VPS. It is not an LLM
-key and must never be committed:
+Dashboardet henter `/api/today` på samme URL som selve siden. Det betyr at
+ingen API-nøkkel ligger i JavaScript eller på telefonen. Når Tailscale Serve
+videresender en forespørsel, legger den til `Tailscale-User-Login`; appen
+godtar den headeren bare fordi Uvicorn lytter på localhost.
+
+Før første oppstart lager du en separat API-hemmelighet på VPS-en. Den brukes
+kun til lokal administrativ verifisering, er ikke en LLM-nøkkel og må aldri
+committes:
 
 ```bash
 sudo sh -c 'umask 077; openssl rand -hex 32 | sed "s/^/TRENING_API_TOKEN=/" > /var/lib/trening/credentials/api.env'
@@ -69,15 +75,13 @@ sudo chown trening:trening /var/lib/trening/credentials/api.env
 sudo systemctl enable --now trening-api.service
 ```
 
-Verify locally on the VPS (replace `<token>` with the value in `api.env`):
+Verifiser lokalt på VPS-en uten å skrive ut nøkkelen:
 
 ```bash
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/health
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/today
+sudo sh -c '. /var/lib/trening/credentials/api.env && curl -fsS -H "Authorization: Bearer $TRENING_API_TOKEN" http://127.0.0.1:8080/health'
 ```
 
-The API currently exposes `GET /health` and `GET /api/today`. Both are
-read-only. `api/today` separates automatic Garmin data, the deterministic
-coach-rule recommendation, planned sessions, baseline deltas, and weekly
-status. Review confirmation and free-text coach changes will get separate
-write endpoints later; they are intentionally not part of this first service.
+API-et eksponerer foreløpig `GET /health` og `GET /api/today`. Begge er
+read-only. `api/today` skiller automatisk Garmin-data, den deterministiske
+coach-anbefalingen, planlagte økter, baseline-endringer og ukestatus. Review
+og coach-fritekst får egne skrive-endepunkter senere.
