@@ -1,9 +1,9 @@
 # systemd for Trening
 
-These units are for the Linux VPS deployment. They deliberately cover only
-deterministic data jobs: sync, backup, and the optional weekly-plan proposal.
-The existing macOS monitor is tied to Claude Code/tmux and is therefore not
-installed on the VPS.
+These units are for the Linux VPS deployment. They cover deterministic data
+jobs (sync, backup, optional weekly-plan proposal) and the private, read-only
+dashboard API. The existing macOS monitor is tied to Claude Code/tmux and is
+therefore not installed on the VPS.
 
 ## Layout
 
@@ -53,3 +53,31 @@ Check the first sync and a backup on the VPS before disabling the Mac jobs.
 Do not run two long-lived instances against copied OAuth refresh-token files:
 some providers rotate refresh tokens, so one instance can invalidate the
 other's credentials.
+
+## Private dashboard API
+
+`trening-api.service` binds Uvicorn to `127.0.0.1:8080`; it is deliberately
+not exposed on the public interface. A later Tailscale-only reverse proxy will
+be the only route from the phone to this port.
+
+Before enabling it, create a distinct API secret on the VPS. It is not an LLM
+key and must never be committed:
+
+```bash
+sudo sh -c 'umask 077; openssl rand -hex 32 | sed "s/^/TRENING_API_TOKEN=/" > /var/lib/trening/credentials/api.env'
+sudo chown trening:trening /var/lib/trening/credentials/api.env
+sudo systemctl enable --now trening-api.service
+```
+
+Verify locally on the VPS (replace `<token>` with the value in `api.env`):
+
+```bash
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/health
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8080/api/today
+```
+
+The API currently exposes `GET /health` and `GET /api/today`. Both are
+read-only. `api/today` separates automatic Garmin data, the deterministic
+coach-rule recommendation, planned sessions, baseline deltas, and weekly
+status. Review confirmation and free-text coach changes will get separate
+write endpoints later; they are intentionally not part of this first service.

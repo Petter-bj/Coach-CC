@@ -1,0 +1,26 @@
+[Unit]
+Description=Trening private dashboard API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=trening
+Group=trening
+WorkingDirectory=/opt/trening/app
+Environment=PYTHONPATH=/opt/trening/app
+Environment=TRENING_DATA_DIR=/var/lib/trening
+Environment=TRENING_LOG_DIR=/var/log/trening
+Environment=TRENING_CACHE_DIR=/var/cache/trening
+EnvironmentFile=/var/lib/trening/credentials/api.env
+ExecStart=/opt/trening/app/.venv/bin/uvicorn src.api.app:app --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+StateDirectory=trening
+LogsDirectory=trening
+CacheDirectory=trening
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

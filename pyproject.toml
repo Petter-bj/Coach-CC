@@ -11,6 +11,8 @@ dependencies = [
     "structlog>=24.1",
     "python-dotenv>=1.0",
     "httpx>=0.27",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [dependency-groups]
