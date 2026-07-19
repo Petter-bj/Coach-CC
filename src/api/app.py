@@ -14,17 +14,38 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.api.coach import build_coach_context
+from src.api.blocks import build_block_payload
+from src.api.block_planning import (
+    apply_block_proposal,
+    build_block_coach_context,
+    create_block_proposal,
+    discard_block_proposal,
+    validate_block_proposal,
+)
 from src.api.reviews import (
     confirm_review,
     pending_review_context,
     save_reconsidered_review,
 )
 from src.api.today import build_today_payload
+from src.api.week import build_day_log, build_week_overview
+from src.api.week_planning import (
+    apply_proposal,
+    build_week_coach_context,
+    create_proposal,
+    discard_proposal,
+    validate_operations,
+)
+from src.api.workout import build_workout_detail
 from src.coaching.deepseek import (
     CoachProviderError,
     CoachReply,
     CoachUnavailableError,
+    BlockCoachReply,
+    WeeklyCoachReply,
+    ask_deepseek_block_coach,
     ask_deepseek_coach,
+    ask_deepseek_week_coach,
 )
 from src.coaching.reviews import ensure_pending_reviews
 from src.db.connection import connect
@@ -79,6 +100,8 @@ class CoachMessage(BaseModel):
 
 
 CoachResponder = Callable[[str, dict[str, Any]], CoachReply]
+WeeklyCoachResponder = Callable[[str, dict[str, Any]], WeeklyCoachReply]
+BlockCoachResponder = Callable[[str, dict[str, Any]], BlockCoachReply]
 
 
 def create_app(
@@ -86,11 +109,15 @@ def create_app(
     db_path: Path | str | None = None,
     api_token: str | None = None,
     coach_responder: CoachResponder | None = None,
+    weekly_coach_responder: WeeklyCoachResponder | None = None,
+    block_coach_responder: BlockCoachResponder | None = None,
 ) -> FastAPI:
-    """Lag dashboardet og dets private, read-only API."""
+    """Lag dashboardet og dets private API med eksplisitte bekreftelsesflyter."""
     token = api_token if api_token is not None else os.getenv("TRENING_API_TOKEN")
     auth = _require_dashboard_access(token)
     responder = coach_responder or ask_deepseek_coach
+    week_responder = weekly_coach_responder or ask_deepseek_week_coach
+    block_responder = block_coach_responder or ask_deepseek_block_coach
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -118,6 +145,73 @@ def create_app(
     def today(day: date | None = None) -> dict:
         with connect(db_path) as conn:
             return build_today_payload(conn, day)
+
+    @app.get("/api/week", dependencies=[Depends(auth)])
+    def week(start: date | None = None) -> dict:
+        with connect(db_path) as conn:
+            return build_week_overview(conn, start)
+
+    @app.get("/api/blocks", dependencies=[Depends(auth)])
+    def blocks(day: date | None = None) -> dict:
+        with connect(db_path) as conn:
+            return build_block_payload(conn, day)
+
+    @app.post("/api/blocks/coach", dependencies=[Depends(auth)])
+    def block_coach_chat(message: CoachMessage) -> dict[str, Any]:
+        """Diskuter én blokk og lagre bare en uapplisert strategidiff."""
+        question = message.message.strip()
+        if not question:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail="Message cannot be blank")
+        with connect(db_path) as conn:
+            context = build_block_coach_context(conn)
+        if message.history:
+            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+        try:
+            reply = block_responder(question, context)
+        except CoachUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Coachen er ikke konfigurert ennå",
+            ) from exc
+        except CoachProviderError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Coachen er midlertidig utilgjengelig. Prøv igjen.",
+            ) from exc
+
+        validated = validate_block_proposal(reply.proposal, context=context)
+        proposal = None
+        if validated is not None:
+            candidate, target_block_id = validated
+            with connect(db_path) as conn:
+                proposal = create_block_proposal(
+                    conn,
+                    target_block_id=target_block_id,
+                    question=question,
+                    coach_answer=reply.answer,
+                    proposal=candidate,
+                )
+        return {
+            "answer": reply.answer,
+            "model": reply.model,
+            "changes_applied": False,
+            "proposal": proposal,
+        }
+
+    @app.get("/api/days/{day}", dependencies=[Depends(auth)])
+    def day_log(day: date) -> dict:
+        with connect(db_path) as conn:
+            return build_day_log(conn, day)
+
+    @app.get("/api/workouts/{workout_id}", dependencies=[Depends(auth)])
+    def workout_detail(workout_id: int) -> dict:
+        with connect(db_path) as conn:
+            detail = build_workout_detail(conn, workout_id)
+        if detail is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Workout was not found")
+        return detail
 
     @app.post("/api/coach/chat", dependencies=[Depends(auth)])
     def coach_chat(message: CoachMessage) -> dict[str, str | bool]:
@@ -147,6 +241,92 @@ def create_app(
             # Gjør kontrakten eksplisitt: denne første sløyfen kan bare lese.
             "changes_applied": False,
         }
+
+    @app.post("/api/weeks/{week_start}/coach", dependencies=[Depends(auth)])
+    def week_coach_chat(week_start: date, message: CoachMessage) -> dict[str, Any]:
+        """Svar om én uke og eventuelt lagre en *uapplisert* endringsdiff."""
+        question = message.message.strip()
+        if not question:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail="Message cannot be blank")
+        with connect(db_path) as conn:
+            context = build_week_coach_context(conn, week_start)
+        if message.history:
+            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+        try:
+            reply = week_responder(question, context)
+        except CoachUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Coachen er ikke konfigurert ennå",
+            ) from exc
+        except CoachProviderError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Coachen er midlertidig utilgjengelig. Prøv igjen.",
+            ) from exc
+
+        operations = validate_operations(reply.operations, week_context=context)
+        proposal = None
+        if operations:
+            with connect(db_path) as conn:
+                proposal = create_proposal(
+                    conn,
+                    week_start=context["scope"]["week_start"],
+                    question=question,
+                    coach_answer=reply.answer,
+                    operations=operations,
+                )
+        return {
+            "answer": reply.answer,
+            "model": reply.model,
+            "changes_applied": False,
+            "proposal": proposal,
+        }
+
+    @app.post("/api/week-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
+    def apply_week_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            proposal = apply_proposal(conn, proposal_id)
+        if proposal is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Forslaget finnes ikke, er tomt eller er allerede håndtert",
+            )
+        return proposal
+
+    @app.post("/api/week-proposals/{proposal_id}/discard", dependencies=[Depends(auth)])
+    def discard_week_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            discarded = discard_proposal(conn, proposal_id)
+        if not discarded:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Forslaget finnes ikke eller er allerede håndtert",
+            )
+        return {"id": proposal_id, "status": "discarded"}
+
+    @app.post("/api/block-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
+    def apply_saved_block_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            proposal = apply_block_proposal(conn, proposal_id)
+        if proposal is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Blokkforslaget finnes ikke, overlapper en annen blokk eller er allerede håndtert",
+            )
+        return proposal
+
+    @app.post("/api/block-proposals/{proposal_id}/discard", dependencies=[Depends(auth)])
+    def discard_saved_block_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            discarded = discard_block_proposal(conn, proposal_id)
+        if not discarded:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Blokkforslaget finnes ikke eller er allerede håndtert",
+            )
+        return {"id": proposal_id, "status": "discarded"}
 
     @app.post("/api/reviews/{review_id}/confirm", dependencies=[Depends(auth)])
     def confirm_session_review(

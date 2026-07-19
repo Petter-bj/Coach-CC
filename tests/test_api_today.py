@@ -11,6 +11,7 @@ import httpx
 
 from src.api.app import create_app
 from src.api.today import build_today_payload
+from src.api.week import build_day_log, build_week_overview
 from src.coaching.deepseek import CoachReply
 from src.coaching.reviews import ensure_pending_reviews
 from src.db.connection import configure
@@ -128,6 +129,7 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["metrics"]["resting_hr"]["delta"] == -3
     assert payload["week"]["completed_sessions"] == 1
     assert payload["recent_workouts"] == [{
+        "id": 1,
         "local_date": "2026-07-18",
         "type": "running",
         "duration_sec": 3480,
@@ -142,6 +144,66 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["reviews"][0]["coach"]["source"] == "coach_rules"
 
 
+def test_week_overview_and_day_log_keep_sources_separate() -> None:
+    conn = _connection()
+    target = date(2026, 7, 19)
+    try:
+        _seed(conn, target)
+        assert ensure_pending_reviews(conn) == 1
+        conn.execute(
+            """
+            INSERT INTO withings_weight (grpid, measured_at_utc, timezone, local_date,
+                                         weight_kg, fat_ratio_pct)
+            VALUES (1, '2026-07-18T07:00:00Z', 'Europe/Oslo', '2026-07-18', 75.2, 14.1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO garmin_daily (local_date, resting_hr, training_readiness_score,
+                                      training_readiness_level, steps)
+            VALUES ('2026-07-18', 48, 79, 'MODERATE', 10240)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO garmin_hrv (local_date, last_night_avg_ms, status)
+            VALUES ('2026-07-18', 68, 'BALANCED')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO yazio_daily (local_date, kcal, protein_g, carbs_g, fat_g, water_ml,
+                                     kcal_goal, protein_goal_g)
+            VALUES ('2026-07-18', 2750, 178, 310, 81, 2200, 2800, 180)
+            """
+        )
+        conn.commit()
+        week = build_week_overview(conn, target)
+        day = build_day_log(conn, date(2026, 7, 18))
+    finally:
+        conn.close()
+
+    saturday = next(item for item in week["days"] if item["date"] == "2026-07-18")
+    assert saturday["status"] == "review"
+    assert saturday["workouts"][0]["distance_m"] == 10400
+    assert saturday["planned_sessions"][0]["description"] == "Rolig langtur"
+    assert week["workout_count"] == 1
+    assert week["total_duration_sec"] == 3480
+    assert week["total_distance_m"] == 10400
+    assert week["pending_reviews"] == 1
+    assert week["training_days"] == 1
+    assert day["workouts"][0]["source"] == "garmin"
+    assert day["automatic"]["garmin_daily"]["training_readiness_score"] == 79
+    assert day["automatic"]["hrv"] == {
+        "last_night_avg_ms": 68,
+        "weekly_avg_ms": None,
+        "status": "BALANCED",
+    }
+    assert day["automatic"]["weight"] == {"weight_kg": 75.2, "fat_ratio_pct": 14.1}
+    assert day["automatic"]["nutrition"]["protein_g"] == 178
+    assert day["coach_reviews"][0]["source"] == "coach_rules"
+
+
 def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> None:
     db_path = tmp_path / "trening.db"
     conn = sqlite3.connect(db_path)
@@ -150,7 +212,15 @@ def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> Non
     _seed(conn, date(2026, 7, 19))
     conn.close()
 
-    async def request_today() -> tuple[httpx.Response, httpx.Response, httpx.Response, httpx.Response]:
+    async def request_today() -> tuple[
+        httpx.Response,
+        httpx.Response,
+        httpx.Response,
+        httpx.Response,
+        httpx.Response,
+        httpx.Response,
+        httpx.Response,
+    ]:
         transport = httpx.ASGITransport(
             app=create_app(db_path=db_path, api_token="test-token")
         )
@@ -167,9 +237,21 @@ def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> Non
                 "/api/today?day=2026-07-19",
                 headers={"Tailscale-User-Login": "petter@example.com"},
             )
-        return dashboard, denied, allowed, tailscale_allowed
+            week = await client.get(
+                "/api/week?start=2026-07-19",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            day_log = await client.get(
+                "/api/days/2026-07-18",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            workout_detail = await client.get(
+                "/api/workouts/1",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        return dashboard, denied, allowed, tailscale_allowed, week, day_log, workout_detail
 
-    dashboard, denied, allowed, tailscale_allowed = asyncio.run(request_today())
+    dashboard, denied, allowed, tailscale_allowed, week, day_log, workout_detail = asyncio.run(request_today())
 
     assert dashboard.status_code == 200
     assert "God morgen, Petter" in dashboard.text
@@ -177,6 +259,13 @@ def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> Non
     assert allowed.status_code == 200
     assert allowed.json()["metrics"]["sleep"]["duration_sec"] == 28080
     assert tailscale_allowed.status_code == 200
+    assert week.status_code == 200
+    assert week.json()["start"] == "2026-07-13"
+    assert day_log.status_code == 200
+    assert day_log.json()["workouts"][0]["local_date"] == "2026-07-18"
+    assert workout_detail.status_code == 200
+    assert workout_detail.json()["workout"]["distance_m"] == 10400
+    assert workout_detail.json()["matched_plan"]["description"] == "Rolig langtur"
 
 
 def test_confirm_review_persists_optional_note_and_removes_pending_card(tmp_path) -> None:

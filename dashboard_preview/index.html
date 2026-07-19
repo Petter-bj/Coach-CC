@@ -32,6 +32,7 @@
           <div class="mobile-brand"><span class="brand-mark" aria-hidden="true">↗</span><span>trening</span></div>
         </header>
 
+        <section class="today-page" data-page="today">
         <section class="page-intro" aria-labelledby="page-title"><h1 id="page-title">God morgen, Petter</h1></section>
 
         <section class="dashboard" aria-label="Dagens treningsoversikt">
@@ -104,7 +105,7 @@
             </div>
             <div class="workout-actions">
               <span class="garmin-status">Sendt til Garmin</span>
-              <button class="details-button" type="button" data-view="Vis detaljer">Vis detaljer</button>
+              <button class="details-button" type="button" data-workout-detail="planned">Vis detaljer</button>
             </div>
           </article>
 
@@ -139,9 +140,10 @@
               <div><p class="eyebrow">SISTE ØKTER</p><h2>Det du faktisk har gjort</h2></div>
             </div>
             <div class="recent-workouts-list" data-recent-workouts-list aria-label="Siste registrerte treningsøkter">
-              <div class="recent-workout-row"><time>SØNDAG 19. JULI</time><strong>Løp</strong><span>54 min · 13,8 km</span><small>142 bpm</small></div>
-              <div class="recent-workout-row"><time>LØRDAG 18. JULI</time><strong>Rolig langtur</strong><span>58 min · 10,4 km</span><small>138 bpm</small></div>
-              <div class="recent-workout-row"><time>TORSDAG 16. JULI</time><strong>Løp</strong><span>37 min · 6,2 km</span><small>145 bpm</small></div>
+              <button class="recent-workout-row" type="button" data-workout-id="preview-1"><time>SØNDAG 19. JULI</time><strong>Løp</strong><span>54 min · 13,8 km</span><small>142 bpm</small></button>
+              <button class="recent-workout-row" type="button" data-workout-id="preview-2"><time>LØRDAG 18. JULI</time><strong>Rolig langtur</strong><span>58 min · 10,4 km</span><small>138 bpm</small></button>
+              <button class="recent-workout-row" type="button" data-workout-id="preview-3"><time>TORSDAG 16. JULI</time><strong>Løp</strong><span>37 min · 6,2 km</span><small>145 bpm</small></button>
+              <button class="recent-workout-row" type="button" data-workout-id="preview-hevy"><time>EKSEMPEL · HEVY</time><strong>Styrkeøkt</strong><span>Hevy · 52 min · 8 sett</span><small>4 620 kg</small></button>
             </div>
           </article>
 
@@ -152,7 +154,184 @@
             </div>
           </article>
         </section>
+        </section>
+
+        <section class="week-page" data-page="week" hidden aria-labelledby="week-page-title">
+          <header class="week-page-intro">
+            <div>
+              <p class="eyebrow">TRENINGSUKE</p>
+              <h1 id="week-page-title" data-week-page-title>Uke 29</h1>
+              <p data-week-page-range>13. – 19. juli</p>
+            </div>
+            <div class="week-controls" aria-label="Velg uke">
+              <button type="button" data-week-nav="previous" aria-label="Forrige uke">←</button>
+              <button type="button" data-week-nav="current">Denne uken</button>
+              <button type="button" data-week-nav="next" aria-label="Neste uke">→</button>
+            </div>
+          </header>
+
+          <section class="week-stat-grid" aria-label="Ukens treningssammendrag">
+            <article><span>ØKTER</span><strong data-week-stat-workouts>3</strong><small data-week-stat-workouts-foot>registrert denne uken</small></article>
+            <article><span>TRENINGSTID</span><strong data-week-stat-duration>2:46</strong><small>timer og minutter</small></article>
+            <article><span>DISTANSE</span><strong data-week-stat-distance>30,4 km</strong><small>på tvers av øktene</small></article>
+            <article><span>VURDERINGER</span><strong data-week-stat-reviews>1</strong><small data-week-stat-reviews-foot>klar til å se på</small></article>
+          </section>
+
+          <section class="week-calendar" aria-label="Ukens dager">
+            <div class="week-calendar-summary" data-week-calendar-summary><strong>3 dager</strong> med registrert trening</div>
+            <div class="week-calendar-grid" data-week-calendar>
+              <button class="week-calendar-day rest" type="button" data-day="2026-07-13"><span>MAN 13.</span><strong>Hvile</strong><i>·</i></button>
+              <button class="week-calendar-day done" type="button" data-day="2026-07-14"><span>TIR 14.</span><strong>Rolig løp</strong><i>✓</i></button>
+              <button class="week-calendar-day empty" type="button" data-day="2026-07-15"><span>ONS 15.</span><strong>Ingen økt</strong><i>·</i></button>
+              <button class="week-calendar-day done" type="button" data-day="2026-07-16"><span>TOR 16.</span><strong>Løp</strong><i>✓</i></button>
+              <button class="week-calendar-day empty" type="button" data-day="2026-07-17"><span>FRE 17.</span><strong>Ingen økt</strong><i>·</i></button>
+              <button class="week-calendar-day review" type="button" data-day="2026-07-18"><span>LØR 18.</span><strong>Rolig langtur</strong><i>!</i></button>
+              <button class="week-calendar-day today" type="button" data-day="2026-07-19"><span>SØN 19.</span><strong>Løp</strong><i>↗</i></button>
+            </div>
+          </section>
+
+          <article class="card week-coach-card" data-week-coach-card>
+            <div class="week-coach-heading">
+              <div>
+                <p class="eyebrow pink">UKENS COACH</p>
+                <h2>Juster ukeplanen når livet flytter på seg</h2>
+                <p>Spør om uka eller beskriv en endring med egne ord. Coachen viser alltid et konkret forslag før planen kan endres.</p>
+              </div>
+              <span class="week-coach-scope" data-week-coach-scope>Uke 29</span>
+            </div>
+            <form class="week-chat-input" id="week-chat-form">
+              <label class="sr-only" for="week-chat-message">Spør coachen om denne uken</label>
+              <input id="week-chat-message" type="text" autocomplete="off" placeholder="F.eks. «flytt terskeløkta til torsdag, jeg reiser tirsdag»" />
+              <button type="submit">Send</button>
+            </form>
+            <section class="week-coach-reply" data-week-coach-reply hidden aria-live="polite">
+              <p class="eyebrow pink">COACH</p>
+              <p data-week-coach-answer></p>
+              <small data-week-coach-model>V4-Pro · Ingen endring er gjort</small>
+            </section>
+            <section class="week-proposal" data-week-proposal hidden aria-live="polite">
+              <div class="week-proposal-header"><div><p class="eyebrow">ENDRINGSFORSLAG</p><h3>Dette blir endret</h3></div><span>Venter på deg</span></div>
+              <div class="week-proposal-operations" data-week-proposal-operations></div>
+              <div class="week-proposal-actions"><button type="button" class="secondary-action" data-week-proposal-discard>Forkast</button><button type="button" class="primary-action" data-week-proposal-apply>Bruk forslaget</button></div>
+            </section>
+          </article>
+
+          <article class="card day-log-card" data-day-log hidden aria-live="polite">
+            <header class="day-log-header">
+              <div><p class="eyebrow" data-day-log-date>LØRDAG 18. JULI</p><h2 data-day-log-title>Dagslogg</h2></div>
+              <button class="day-log-close" type="button" data-day-log-close aria-label="Lukk dagslogg">×</button>
+            </header>
+            <div class="day-log-grid">
+              <section class="day-log-primary">
+                <div class="day-log-section" data-day-log-workouts>
+                  <p class="eyebrow">REGISTRERT TRENING</p>
+                  <div class="day-log-workout"><strong>Rolig langtur</strong><span>58 min · 10,4 km · 138 bpm</span></div>
+                </div>
+                <div class="day-log-section" data-day-log-plan>
+                  <p class="eyebrow">PLAN</p>
+                  <p>60 min rolig sone 2</p>
+                </div>
+                <div class="day-log-section coach-log" data-day-log-coach>
+                  <p class="eyebrow pink">COACH</p>
+                  <p>Fin økt — belastningen passer planen.</p>
+                </div>
+              </section>
+              <aside class="day-log-evidence" aria-label="Automatisk registrerte dagsdata">
+                <p class="eyebrow">AUTOMATISK REGISTRERT</p>
+                <div class="day-log-evidence-grid day-log-readiness-grid">
+                  <div><span>RESTITUSJON</span><strong data-day-log-readiness>84</strong><small data-day-log-readiness-foot>høy beredskap</small></div>
+                  <div><span>HRV</span><strong data-day-log-hrv>73 ms</strong><small data-day-log-hrv-foot>balansert</small></div>
+                  <div><span>SØVN</span><strong data-day-log-sleep>7:48</strong><small data-day-log-sleep-foot>90 % søvnscore</small></div>
+                </div>
+                <section class="day-log-facts">
+                  <p class="eyebrow">KROPP OG AKTIVITET</p>
+                  <div class="day-log-fact-list">
+                    <span>Hvilepuls <strong data-day-log-resting-hr>47 bpm</strong></span>
+                    <span>Skritt <strong data-day-log-steps>10 240</strong></span>
+                    <span>Vekt <strong data-day-log-weight>75,2 kg</strong> <small data-day-log-weight-foot>14,1 % fett</small></span>
+                  </div>
+                </section>
+                <section class="day-log-facts nutrition-facts">
+                  <p class="eyebrow">ERNÆRING</p>
+                  <div class="day-log-fact-list">
+                    <span>Energi <strong data-day-log-kcal>2 750 kcal</strong> <small data-day-log-kcal-foot>av 2 800 kcal</small></span>
+                    <span>Makroer <strong data-day-log-macros>178 P · 310 K · 81 F</strong></span>
+                    <span>Vann <strong data-day-log-water>2,2 l</strong></span>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </article>
+        </section>
+
+        <section class="block-page" data-page="block" hidden aria-labelledby="block-page-title">
+          <header class="block-page-intro">
+            <div><p class="eyebrow">PLANMOTOR</p><h1 id="block-page-title" data-block-title>6 uker · Base og robusthet</h1><p data-block-range>20. juli – 30. august</p></div>
+            <span class="block-state example" data-block-state>EKSEMPEL · IKKE AKTIV</span>
+          </header>
+
+          <article class="card block-hero">
+            <div class="block-hero-copy"><p class="eyebrow pink" data-block-phase>BASE</p><h2 data-block-goal>Bygge stabil løpstoleranse og en rytme som tåler mer planlagt kvalitet senere.</h2><p data-block-note>Dette er et eksempel på hvordan blokker styrer ukene. Det er ikke lagret som planen din, og ingen økter blir opprettet før du og coachen lager en reell blokk.</p></div>
+            <div class="block-hero-facts"><div><span>VARIGHET</span><strong data-block-length>6 uker</strong></div><div><span>RITME</span><strong data-block-rhythm>3–4 økter</strong></div><div><span>NESTE STEG</span><strong data-block-next>Uke 1</strong></div></div>
+          </article>
+
+          <article class="card block-coach-card" data-block-coach-card>
+            <div class="block-coach-heading">
+              <div><p class="eyebrow pink">BLOKKCOACH</p><h2>Lag planen sammen før ukene fylles med økter</h2><p>Beskriv målet, hvor lang tid du har og hva som må tas hensyn til. Du kan også diskutere eller justere blokken som ligger her. Coachen viser alltid et konkret blokkforslag før noe lagres.</p></div>
+              <span class="block-coach-scope" data-block-coach-scope>STRATEGI · 2–12 UKER</span>
+            </div>
+            <form class="block-chat-input" id="block-chat-form">
+              <label class="sr-only" for="block-chat-message">Snakk med coachen om treningsblokken</label>
+              <input id="block-chat-message" type="text" autocomplete="off" placeholder="F.eks. «Lag en seksukers blokk for å komme tilbake til stabil løping»" />
+              <button type="submit">Send</button>
+            </form>
+            <section class="block-coach-reply" data-block-coach-reply hidden aria-live="polite">
+              <p class="eyebrow pink">COACH</p>
+              <p data-block-coach-answer></p>
+              <small data-block-coach-model>V4-Pro · Ingen endring er gjort</small>
+            </section>
+            <section class="block-proposal" data-block-proposal hidden aria-live="polite">
+              <div class="block-proposal-header"><div><p class="eyebrow">BLOKKFORSLAG</p><h3 data-block-proposal-name>Dette blir blokken</h3></div><span>Venter på deg</span></div>
+              <div class="block-proposal-facts"><div><span>START</span><strong data-block-proposal-start>—</strong></div><div><span>VARIGHET</span><strong data-block-proposal-length>—</strong></div><div><span>FASE</span><strong data-block-proposal-phase>—</strong></div></div>
+              <p class="block-proposal-goal" data-block-proposal-goal></p>
+              <div class="block-proposal-weeks" data-block-proposal-weeks></div>
+              <p class="block-proposal-note">Dette oppretter eller endrer bare den strategiske blokken. Enkeltøkter blir fortsatt lagt i hver uke senere.</p>
+              <div class="block-proposal-actions"><button type="button" class="secondary-action" data-block-proposal-discard>Forkast</button><button type="button" class="primary-action" data-block-proposal-apply>Bruk blokkforslaget</button></div>
+            </section>
+          </article>
+
+          <section class="block-principles" aria-label="Blokkens prinsipper">
+            <article><p class="eyebrow">STRUKTUR</p><strong>Én ting om gangen</strong><p>Frekvens, kvalitet og volum bygges ikke samtidig.</p></article>
+            <article><p class="eyebrow">KVALITET</p><strong>Kontrollert, ikke heroisk</strong><p>Én tydelig hensikt per hardere økt, med lett nok plass rundt.</p></article>
+            <article><p class="eyebrow">SIKKERHETSNETT</p><strong>Kroppen over skjemaet</strong><p>Vedvarende smerte eller dårlig respons slår progresjonsplanen.</p></article>
+          </section>
+
+          <section class="block-weeks-section" aria-labelledby="block-weeks-title">
+            <div class="block-weeks-heading"><div><p class="eyebrow">BLOKKENS UKER</p><h2 id="block-weeks-title">Fra strategi til en uke du faktisk kan flytte på</h2></div><p>Åpne en uke for konkrete økter, historikk og ukecoachen.</p></div>
+            <div class="block-weeks-grid" data-block-weeks>
+              <article class="block-week current"><div class="block-week-number"><span>UKE 1</span><i>AKTIV NÅ</i></div><h3>Rytme og toleranse</h3><p>Finn en stabil rytme med tre løpsdager uten å jage fart.</p><small>3 løpeøkter · 1 valgfri styrke/cross-train</small><button type="button" data-block-open-week="2026-07-20">Åpne uke <span>→</span></button></article>
+              <article class="block-week"><div class="block-week-number"><span>UKE 2</span></div><h3>Bygge frekvens</h3><p>Behold rolig volum og legg til korte, lette stigningsløp hvis kroppen er fin.</p><small>3–4 løpeøkter · fortsatt mest rolig</small><button type="button" data-block-open-week="2026-07-27">Åpne uke <span>→</span></button></article>
+              <article class="block-week"><div class="block-week-number"><span>UKE 3</span></div><h3>Kontrollert terskel</h3><p>Én kontrollert kvalitetsøkt, resten lett nok til at kroppen er stabil.</p><small>1 kvalitet · 2 rolige · 1 styrke</small><button type="button" data-block-open-week="2026-08-03">Åpne uke <span>→</span></button></article>
+              <article class="block-week"><div class="block-week-number"><span>UKE 4</span></div><h3>Konsolidere</h3><p>Hold kvaliteten lik og la totalbelastningen sette seg før neste byggesteg.</p><small>Samme rytme · ingen volumjakt</small><button type="button" data-block-open-week="2026-08-10">Åpne uke <span>→</span></button></article>
+              <article class="block-week"><div class="block-week-number"><span>UKE 5</span></div><h3>Bygge robust volum</h3><p>Utvid én rolig økt forsiktig bare dersom belastningen og symptomene er stabile.</p><small>1 lengre rolig · 1 kvalitet · 1–2 lette</small><button type="button" data-block-open-week="2026-08-17">Åpne uke <span>→</span></button></article>
+              <article class="block-week deload"><div class="block-week-number"><span>UKE 6</span><i>DELOAD</i></div><h3>Deload og vurdering</h3><p>Trekk ned volumet, behold litt rytme og vurder hva kroppen responderte best på.</p><small>Redusert volum · lett kvalitet eller helt rolig</small><button type="button" data-block-open-week="2026-08-24">Åpne uke <span>→</span></button></article>
+            </div>
+          </section>
+        </section>
       </main>
+
+      <div class="workout-detail-modal" data-workout-detail-modal hidden role="dialog" aria-modal="true" aria-labelledby="workout-detail-title">
+        <button class="workout-detail-backdrop" type="button" data-workout-detail-close aria-label="Lukk øktdetaljer"></button>
+        <article class="workout-detail-sheet">
+          <header class="workout-detail-header">
+            <div><p class="eyebrow" data-workout-detail-eyebrow>PLANLAGT ØKT</p><h2 id="workout-detail-title" data-workout-detail-title>Kontrollert terskel</h2></div>
+            <button class="workout-detail-close" type="button" data-workout-detail-close aria-label="Lukk øktdetaljer">×</button>
+          </header>
+          <p class="workout-detail-intro" data-workout-detail-intro></p>
+          <div class="workout-detail-stats" data-workout-detail-stats></div>
+          <div class="workout-detail-body" data-workout-detail-body></div>
+        </article>
+      </div>
 
       <nav class="bottom-nav" aria-label="Mobilnavigasjon">
         <button class="mobile-nav-item active" type="button" data-view="I dag"><span>⌂</span>I dag</button>

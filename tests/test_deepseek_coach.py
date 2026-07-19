@@ -10,6 +10,8 @@ import pytest
 from src.coaching.deepseek import (
     CoachProviderError,
     CoachUnavailableError,
+    ask_deepseek_block_coach,
+    ask_deepseek_week_coach,
     ask_deepseek_coach,
 )
 
@@ -99,3 +101,75 @@ def test_ask_deepseek_coach_hides_provider_failures() -> None:
             ask_deepseek_coach("Hei", {}, api_key="test-key", http_client=client)
     finally:
         client.close()
+
+
+def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({
+                "answer": "Flytt den til torsdag.",
+                "operations": [{
+                    "action": "move",
+                    "session_id": 12,
+                    "to_date": "2026-07-23",
+                    "reason": "Mer rom.",
+                }],
+            })}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        reply = ask_deepseek_week_coach(
+            "Kan du flytte økta?",
+            {"scope": {"week_start": "2026-07-20"}},
+            api_key="test-key",
+            http_client=client,
+        )
+    finally:
+        client.close()
+
+    assert reply.answer == "Flytt den til torsdag."
+    assert reply.operations == [{
+        "action": "move",
+        "session_id": 12,
+        "to_date": "2026-07-23",
+        "reason": "Mer rom.",
+    }]
+
+
+def test_block_coach_parses_a_structured_candidate_without_writing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["thinking"] == {"type": "enabled"}
+        assert "BLOKKONTEKST" in body["messages"][-1]["content"]
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({
+                "answer": "Dette er et utkast.",
+                "proposal": {
+                    "action": "create",
+                    "name": "4 uker tilbake i rytme",
+                    "phase": "base",
+                    "start_date": "2026-07-20",
+                    "goal": "Stabil løping",
+                    "notes": "Rolig start.",
+                    "weeks": [{"focus": "Rytme", "is_deload": False}],
+                },
+            })}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        reply = ask_deepseek_block_coach(
+            "Lag en blokk",
+            {"current_block": {"is_example": True}},
+            api_key="test-key",
+            http_client=client,
+        )
+    finally:
+        client.close()
+
+    assert reply.answer == "Dette er et utkast."
+    assert reply.proposal is not None
+    assert reply.proposal["name"] == "4 uker tilbake i rytme"

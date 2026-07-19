@@ -115,7 +115,7 @@ def _recent_workouts(conn: sqlite3.Connection, target_date: date) -> list[dict[s
     """De siste øktene som kan vises som Garmin-/kildebevis på I dag."""
     rows = conn.execute(
         """
-        SELECT local_date, type, duration_sec, distance_m, avg_hr, source
+        SELECT id, local_date, type, duration_sec, distance_m, avg_hr, source
           FROM workouts
          WHERE superseded_by IS NULL
            AND local_date <= ?
