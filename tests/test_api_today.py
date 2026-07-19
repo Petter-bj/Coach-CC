@@ -10,6 +10,7 @@ import httpx
 
 from src.api.app import create_app
 from src.api.today import build_today_payload
+from src.coaching.reviews import ensure_pending_reviews
 from src.db.connection import configure
 from src.db.migrations import migrate
 
@@ -69,12 +70,21 @@ def _seed(conn: sqlite3.Connection, target_date: date) -> None:
         """,
         (day,),
     )
+    workout = conn.execute(
+        """
+        INSERT INTO workouts (source, external_id, started_at_utc, timezone,
+                              local_date, type, duration_sec, avg_hr, distance_m)
+        VALUES ('garmin', 'review-workout', ?, 'Europe/Oslo', ?, 'running', 3480, 138, 10400)
+        """,
+        (f"{saturday}T09:00:00Z", saturday),
+    )
     conn.execute(
         """
-        INSERT INTO planned_sessions (planned_date, type, description, status)
-        VALUES (?, 'easy_run', 'Rolig langtur', 'completed')
+        INSERT INTO planned_sessions (planned_date, type, description, status, workout_id,
+                                      target_metrics)
+        VALUES (?, 'easy_run', 'Rolig langtur', 'completed', ?, '{"duration_min": 60}')
         """,
-        (saturday,),
+        (saturday, workout.lastrowid),
     )
     conn.execute(
         """
@@ -98,6 +108,7 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     target = date(2026, 7, 19)
     try:
         _seed(conn, target)
+        assert ensure_pending_reviews(conn) == 1
         payload = build_today_payload(conn, target)
     finally:
         conn.close()
@@ -116,7 +127,9 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["week"]["completed_sessions"] == 1
     saturday = next(day for day in payload["week"]["days"] if day["date"] == "2026-07-18")
     assert saturday["status"] == "completed"
-    assert payload["reviews"] == []
+    assert payload["reviews"][0]["planned_session"]["date"] == "2026-07-18"
+    assert payload["reviews"][0]["actual"]["duration_sec"] == 3480
+    assert payload["reviews"][0]["coach"]["source"] == "coach_rules"
 
 
 def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> None:
@@ -154,3 +167,57 @@ def test_dashboard_is_served_and_api_accepts_tailscale_identity(tmp_path) -> Non
     assert allowed.status_code == 200
     assert allowed.json()["metrics"]["sleep"]["duration_sec"] == 28080
     assert tailscale_allowed.status_code == 200
+
+
+def test_confirm_review_persists_optional_note_and_removes_pending_card(tmp_path) -> None:
+    db_path = tmp_path / "trening.db"
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    migrate(conn)
+    _seed(conn, date(2026, 7, 19))
+    assert ensure_pending_reviews(conn) == 1
+    review_id = conn.execute("SELECT id FROM session_reviews").fetchone()["id"]
+    conn.commit()
+    conn.close()
+
+    async def confirm() -> tuple[httpx.Response, httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(db_path=db_path, api_token="test-token")
+        )
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            denied = await client.post(f"/api/reviews/{review_id}/confirm", json={})
+            confirmed = await client.post(
+                f"/api/reviews/{review_id}/confirm",
+                headers={"Authorization": "Bearer test-token"},
+                json={"note": "  Møllefarten var 11,5 km/t.  "},
+            )
+            stale = await client.post(
+                f"/api/reviews/{review_id}/confirm",
+                headers={"Authorization": "Bearer test-token"},
+                json={},
+            )
+        return denied, confirmed, stale
+
+    denied, confirmed, stale = asyncio.run(confirm())
+
+    assert denied.status_code == 401
+    assert confirmed.status_code == 200
+    assert confirmed.json() == {
+        "id": review_id,
+        "status": "reviewed",
+        "user_note": "Møllefarten var 11,5 km/t.",
+    }
+    assert stale.status_code == 409
+
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    review = conn.execute(
+        "SELECT status, user_note, reviewed_at FROM session_reviews WHERE id = ?",
+        (review_id,),
+    ).fetchone()
+    conn.close()
+    assert review["status"] == "reviewed"
+    assert review["user_note"] == "Møllefarten var 11,5 km/t."
+    assert review["reviewed_at"] is not None

@@ -4,8 +4,9 @@ Dette er den mobil-første dashboard-klienten for «I dag».
 
 Når den åpnes som en enkel statisk preview, bruker den representative
 eksempeldata. Når den serveres av `src.api.app`, henter den ekte, read-only
-data fra `/api/today` på samme private URL. Chat, review-lagring og
-Garmin-push er fortsatt bevisst ikke koblet på.
+data fra `/api/today` på samme private URL. Et automatisk matchet Garmin-økt
+kan nå bekreftes med et valgfritt avviksnotat. Chat og Garmin-push er fortsatt
+bevisst ikke koblet på.
 
 Start det fra prosjektmappen:
 

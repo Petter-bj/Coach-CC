@@ -42,6 +42,7 @@ EXPECTED_TABLES = {
     "intake_log",
     "injuries",
     "planned_sessions",
+    "session_reviews",
     "context_log",
     "source_stream_state",
     "sync_runs",
@@ -70,14 +71,14 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
 
 def test_migrate_creates_all_tables(conn: sqlite3.Connection) -> None:
     applied = migrate(conn)
-    assert applied == [1, 2, 3]
+    assert applied == [1, 2, 3, 4]
     assert _table_names(conn) == EXPECTED_TABLES
 
 
 def test_migrate_is_idempotent(conn: sqlite3.Connection) -> None:
     first = migrate(conn)
     second = migrate(conn)
-    assert first == [1, 2, 3]
+    assert first == [1, 2, 3, 4]
     assert second == []
 
 
@@ -160,7 +161,7 @@ def test_wal_mode_active(tmp_path: Path) -> None:
 def test_schema_migrations_records_version(conn: sqlite3.Connection) -> None:
     migrate(conn)
     rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
-    assert [r[0] for r in rows] == [1, 2, 3]
+    assert [r[0] for r in rows] == [1, 2, 3, 4]
 
 
 def test_check_constraint_rpe_range(conn: sqlite3.Connection) -> None:

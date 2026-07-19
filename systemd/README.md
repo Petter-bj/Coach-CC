@@ -81,7 +81,8 @@ Verifiser lokalt på VPS-en uten å skrive ut nøkkelen:
 sudo sh -c '. /var/lib/trening/credentials/api.env && curl -fsS -H "Authorization: Bearer $TRENING_API_TOKEN" http://127.0.0.1:8080/health'
 ```
 
-API-et eksponerer foreløpig `GET /health` og `GET /api/today`. Begge er
-read-only. `api/today` skiller automatisk Garmin-data, den deterministiske
-coach-anbefalingen, planlagte økter, baseline-endringer og ukestatus. Review
-og coach-fritekst får egne skrive-endepunkter senere.
+API-et eksponerer foreløpig `GET /health`, `GET /api/today` og den smale
+skrivehandlingen `POST /api/reviews/{id}/confirm`. `api/today` skiller
+automatisk Garmin-data, den deterministiske coach-anbefalingen, planlagte
+økter, baseline-endringer, ukestatus og pending reviews. Bekreftelse kan kun
+lagre et valgfritt notat; coach-fritekst og planendringer kommer senere.

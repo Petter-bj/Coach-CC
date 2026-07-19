@@ -66,15 +66,15 @@
           <article class="card review-card" id="review-card" aria-labelledby="review-title">
             <div class="review-pending">
               <div class="review-header">
-                <div><p class="eyebrow review-label">VURDERING KLAR</p><h2 id="review-title">Rolig langtur</h2></div>
-                <p class="review-source">Lørdag · registrert av Garmin</p>
+                <div><p class="eyebrow review-label">VURDERING KLAR</p><h2 id="review-title" data-review-title>Rolig langtur</h2></div>
+                <p class="review-source" data-review-source>Lørdag · registrert av Garmin</p>
               </div>
               <div class="review-metrics" aria-label="Plan mot faktisk økt">
-                <div><span>VARIGHET</span><strong>58 min</strong><small>plan: 60 min</small></div>
-                <div><span>SNITTPULS</span><strong>138 bpm</strong><small>plan: sone 2</small></div>
-                <div><span>DISTANSE</span><strong>10,4 km</strong><small>plan: —</small></div>
+                <div><span>VARIGHET</span><strong data-review-duration>58 min</strong><small data-review-duration-plan>plan: 60 min</small></div>
+                <div><span>SNITTPULS</span><strong data-review-hr>138 bpm</strong><small data-review-hr-plan>plan: sone 2</small></div>
+                <div><span>DISTANSE</span><strong data-review-distance>10,4 km</strong><small data-review-distance-plan>plan: —</small></div>
               </div>
-              <div class="review-coach-comment"><span>COACH</span><p>Fin økt — 58 av 60 min i sone 2 med snittpuls 138, akkurat der den skal ligge. Pulsen driftet lite mot slutten, som tyder på god utholdenhet i rolig tempo.<br /><strong>Ingenting å endre.</strong></p></div>
+              <div class="review-coach-comment"><span>COACH</span><p data-review-comment>Fin økt — 58 av 60 min i sone 2 med snittpuls 138, akkurat der den skal ligge. Pulsen driftet lite mot slutten, som tyder på god utholdenhet i rolig tempo.<br /><strong>Ingenting å endre.</strong></p></div>
               <form class="review-form" id="review-form">
                 <label class="sr-only" for="review-note">Avvik eller notat</label>
                 <input id="review-note" type="text" autocomplete="off" placeholder="Avvik eller notat? (valgfritt — f.eks. «gikk to bakker»)" />

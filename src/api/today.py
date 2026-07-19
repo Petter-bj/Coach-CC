@@ -130,6 +130,55 @@ def _latest_garmin_rows(
     return daily, sleep, hrv
 
 
+def _pending_reviews(conn: sqlite3.Connection, target_date: date) -> list[dict[str, Any]]:
+    """Returner ubekreftede, nylig automatisk matchede økter."""
+    cutoff = (target_date - timedelta(days=7)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT r.id AS review_id, r.status AS review_status, r.coach_source,
+               r.coach_comment, r.created_at,
+               p.id AS planned_session_id, p.planned_date, p.type,
+               p.description, p.target_metrics,
+               w.id AS workout_id, w.source AS workout_source,
+               w.duration_sec, w.avg_hr, w.distance_m
+          FROM session_reviews r
+          JOIN planned_sessions p ON p.id = r.planned_session_id
+          JOIN workouts w ON w.id = r.workout_id
+         WHERE r.status = 'pending'
+           AND p.planned_date BETWEEN ? AND ?
+         ORDER BY p.planned_date DESC, r.id DESC
+        """,
+        (cutoff, target_date.isoformat()),
+    ).fetchall()
+    reviews = []
+    for row in rows:
+        reviews.append({
+            "id": row["review_id"],
+            "status": row["review_status"],
+            "source": "automatic",
+            "created_at": row["created_at"],
+            "planned_session": {
+                "id": row["planned_session_id"],
+                "date": row["planned_date"],
+                "type": row["type"],
+                "description": row["description"],
+                "target_metrics": _decode_target_metrics(row["target_metrics"]),
+            },
+            "actual": {
+                "workout_id": row["workout_id"],
+                "source": row["workout_source"],
+                "duration_sec": row["duration_sec"],
+                "avg_hr": row["avg_hr"],
+                "distance_m": row["distance_m"],
+            },
+            "coach": {
+                "source": row["coach_source"],
+                "comment": row["coach_comment"],
+            },
+        })
+    return reviews
+
+
 def build_today_payload(conn: sqlite3.Connection, target_date: date | None = None) -> dict[str, Any]:
     """Bygg API-responsen for én dags dashboard, uten å skrive til databasen."""
     target_date = target_date or date.today()
@@ -196,7 +245,5 @@ def build_today_payload(conn: sqlite3.Connection, target_date: date | None = Non
             "resting_hr": rhr_metric,
         },
         "week": _week_payload(conn, target_date),
-        # Review trenger en egen persistensmodell; den innføres sammen med
-        # skrive-endepunktet som bekrefter/overstyrer en Garmin-tolkning.
-        "reviews": [],
+        "reviews": _pending_reviews(conn, target_date),
     }

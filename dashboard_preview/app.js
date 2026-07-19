@@ -6,6 +6,7 @@ const reviewForm = document.querySelector("#review-form");
 const reviewCard = document.querySelector("#review-card");
 const saturday = document.querySelector('[data-day="lørdag"]');
 let toastTimer;
+let currentToday;
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 1 });
 const weekdays = ["MAN", "TIR", "ONS", "TOR", "FRE", "LØR", "SØN"];
@@ -128,7 +129,46 @@ function recommendationTitle(kind, session) {
   return titles[kind] || "Se dagens signaler før du trener.";
 }
 
-function renderWeek(week, targetDate) {
+function formatWorkoutDuration(seconds) {
+  if (!Number.isFinite(seconds)) return "—";
+  return `${number.format(Math.round(seconds / 60))} min`;
+}
+
+function formatDistance(meters) {
+  if (!Number.isFinite(meters)) return "—";
+  return `${number.format(meters / 1000)} km`;
+}
+
+function reviewSourceLabel(source) {
+  const labels = { garmin: "Garmin", concept2: "Concept2", strength: "Styrkelogg" };
+  return labels[source] || "enheten din";
+}
+
+function renderReview(review) {
+  if (!reviewCard || !review) return;
+  const planned = review.planned_session || {};
+  const actual = review.actual || {};
+  const target = planned.target_metrics || {};
+  const reviewDate = formatDate(planned.date || currentToday?.date || "").toLowerCase();
+
+  reviewCard.hidden = false;
+  reviewCard.classList.remove("reviewed");
+  reviewForm.dataset.reviewId = String(review.id);
+  setText("[data-review-title]", planned.description || sessionTitle(planned));
+  setText("[data-review-source]", `${reviewDate} · registrert av ${reviewSourceLabel(actual.source)}`);
+  setText("[data-review-duration]", formatWorkoutDuration(actual.duration_sec));
+  setText(
+    "[data-review-duration-plan]",
+    Number.isFinite(target.duration_min) ? `plan: ${number.format(target.duration_min)} min` : "plan: —",
+  );
+  setText("[data-review-hr]", actual.avg_hr == null ? "—" : `${number.format(actual.avg_hr)} bpm`);
+  setText("[data-review-hr-plan]", target.zone ? `plan: ${target.zone}` : "plan: —");
+  setText("[data-review-distance]", formatDistance(actual.distance_m));
+  setText("[data-review-distance-plan]", "plan: —");
+  setText("[data-review-comment]", review.coach?.comment || "Økten er registrert og klar for vurdering.");
+}
+
+function renderWeek(week, targetDate, reviews = []) {
   const summary = document.querySelector("[data-week-summary]");
   const daysElement = document.querySelector("[data-week-days]");
   if (!week || !summary || !daysElement) return;
@@ -138,24 +178,30 @@ function renderWeek(week, targetDate) {
   completed.textContent = `${week.completed_sessions} av ${week.planned_sessions}`;
   summary.append(completed, " økter gjennomført");
 
+  const pendingReviewDates = new Set(
+    reviews.filter((review) => review.status === "pending").map((review) => review.planned_session?.date),
+  );
+
   daysElement.replaceChildren();
   week.days.forEach((day) => {
     const sessions = day.sessions || [];
     const isToday = day.date === targetDate;
     const isDone = day.status === "completed";
     const isRest = day.status === "rest" || day.status === "skipped" || sessions.length === 0;
+    const needsReview = pendingReviewDates.has(day.date);
     const item = document.createElement("div");
-    item.className = `day${isToday ? " today" : isDone ? " done" : isRest ? " rest" : ""}`;
+    item.className = `day${isToday ? " today" : needsReview ? " review" : isDone ? " done" : isRest ? " rest" : ""}`;
     const label = document.createElement("span");
     label.textContent = weekdays[day.weekday] || "";
     const state = document.createElement("i");
-    state.textContent = isToday && sessions.length ? "↗" : isDone ? "✓" : "·";
+    state.textContent = isToday && sessions.length ? "↗" : needsReview ? "!" : isDone ? "✓" : "·";
     item.append(label, state);
     daysElement.append(item);
   });
 }
 
 function hydrateDashboard(payload) {
+  currentToday = payload;
   const metrics = payload.metrics || {};
   const session = (payload.planned_sessions || []).find((item) => item.type !== "rest");
   const readiness = metrics.readiness || {};
@@ -229,8 +275,9 @@ function hydrateDashboard(payload) {
   setDelta("[data-metric-rhr-delta]", restingHr.delta, "bpm", { lowIsGood: true });
   setText("[data-metric-rhr-foot]", restingHr.baseline === null || restingHr.baseline === undefined ? "Ingen baseline ennå" : `Baseline ${number.format(restingHr.baseline)} bpm`);
 
-  renderWeek(payload.week, payload.date);
-  if (!payload.reviews?.length && reviewCard) reviewCard.hidden = true;
+  renderWeek(payload.week, payload.date, payload.reviews);
+  if (payload.reviews?.length) renderReview(payload.reviews[0]);
+  else if (reviewCard) reviewCard.hidden = true;
 }
 
 async function loadToday() {
@@ -266,14 +313,43 @@ chatForm.addEventListener("submit", (event) => {
   showToast("Chat kobles på når Kimi-harnesset bygges. Spørsmålet ditt ble ikke sendt.");
 });
 
-reviewForm.addEventListener("submit", (event) => {
+reviewForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const note = document.querySelector("#review-note").value.trim();
-  reviewCard.classList.add("reviewed");
-  saturday.classList.remove("review");
-  saturday.classList.add("done");
-  saturday.querySelector("i").textContent = "✓";
-  showToast(note ? "Vurderingen ble lagret med notatet ditt." : "Økten er markert som vurdert.");
+  const reviewId = reviewForm.dataset.reviewId;
+
+  if (!reviewId) {
+    // Det statiske previewet har ingen database. Behold interaksjonen der som
+    // en ren visuell demonstrasjon.
+    reviewCard.classList.add("reviewed");
+    saturday?.classList.remove("review");
+    saturday?.classList.add("done");
+    saturday?.querySelector("i")?.replaceChildren("✓");
+    showToast(note ? "Vurderingen ble lagret med notatet ditt." : "Økten er markert som vurdert.");
+    return;
+  }
+
+  const button = reviewForm.querySelector("button");
+  button.disabled = true;
+  button.textContent = "Lagrer …";
+  try {
+    const response = await fetch(`/api/reviews/${reviewId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ note: note || null }),
+    });
+    if (!response.ok) throw new Error("review confirmation failed");
+
+    reviewCard.classList.add("reviewed");
+    currentToday.reviews = currentToday.reviews.filter((review) => review.id !== Number(reviewId));
+    renderWeek(currentToday.week, currentToday.date, currentToday.reviews);
+    showToast(note ? "Vurderingen ble lagret med notatet ditt." : "Økten er markert som vurdert.");
+  } catch {
+    showToast("Kunne ikke lagre vurderingen. Prøv igjen.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Marker som vurdert";
+  }
 });
 
 loadToday();

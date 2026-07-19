@@ -29,6 +29,7 @@ from src.db.migrations import migrate
 from src.paths import APP_SUPPORT, ENV_FILE, SYNC_LOCK, ensure_runtime_dirs
 from src.analysis.baselines import refresh_baselines
 from src.coaching.reconcile_plan import reconcile_planned_sessions
+from src.coaching.reviews import ensure_pending_reviews
 from src.reconcile import dedupe_workouts
 from src.sources.base import Source
 from src.sources.concept2 import Concept2Source
@@ -145,6 +146,10 @@ def _run_sync(args) -> None:
         if rec.matched > 0:
             print(f"[reconcile-plan] {rec.matched} planned sessions matched "
                   f"({rec.unmatched} unmatched, {rec.already_completed} already done)")
+
+        reviews_created = ensure_pending_reviews(conn, since_days_ago=30)
+        if reviews_created:
+            print(f"[reviews] {reviews_created} vurdering(er) klare")
 
 
 if __name__ == "__main__":
