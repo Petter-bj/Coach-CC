@@ -127,6 +127,14 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["metrics"]["hrv"]["baseline"] == 66
     assert payload["metrics"]["resting_hr"]["delta"] == -3
     assert payload["week"]["completed_sessions"] == 1
+    assert payload["recent_workouts"] == [{
+        "local_date": "2026-07-18",
+        "type": "running",
+        "duration_sec": 3480,
+        "distance_m": 10400,
+        "avg_hr": 138,
+        "source": "garmin",
+    }]
     saturday = next(day for day in payload["week"]["days"] if day["date"] == "2026-07-18")
     assert saturday["status"] == "completed"
     assert payload["reviews"][0]["planned_session"]["date"] == "2026-07-18"
@@ -345,7 +353,13 @@ def test_coach_chat_is_private_read_only_and_receives_curated_context(tmp_path) 
             allowed = await client.post(
                 "/api/coach/chat",
                 headers={"Authorization": "Bearer test-token"},
-                json={"message": "Bør jeg løpe?"},
+                json={
+                    "message": "Bør jeg løpe?",
+                    "history": [
+                        {"role": "user", "content": "Kneet var stivt."},
+                        {"role": "assistant", "content": "Ta en rolig dag."},
+                    ],
+                },
             )
         return denied, allowed
 
@@ -359,6 +373,10 @@ def test_coach_chat_is_private_read_only_and_receives_curated_context(tmp_path) 
         "changes_applied": False,
     }
     assert seen["question"] == "Bør jeg løpe?"
+    assert seen["context"]["conversation_history"] == [
+        {"role": "user", "content": "Kneet var stivt."},
+        {"role": "assistant", "content": "Ta en rolig dag."},
+    ]
     assert seen["context"]["goals"][0]["title"] == "Raskere 10 km"
     assert seen["context"]["recent_workouts"]
     encoded_context = json.dumps(seen["context"])

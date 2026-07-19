@@ -7,7 +7,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any, Callable, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.staticfiles import StaticFiles
@@ -64,10 +64,18 @@ class ReviewConfirmation(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class CoachHistoryMessage(BaseModel):
+    """Én tidligere tur i en kort, klientholdt coach-samtale."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2_000)
+
+
 class CoachMessage(BaseModel):
     """Én fritekstmelding til coachen; ingen planendring kan skje her."""
 
     message: str = Field(min_length=1, max_length=2_000)
+    history: list[CoachHistoryMessage] = Field(default_factory=list, max_length=8)
 
 
 CoachResponder = Callable[[str, dict[str, Any]], CoachReply]
@@ -119,6 +127,8 @@ def create_app(
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
             context = build_coach_context(conn)
+        if message.history:
+            context["conversation_history"] = [turn.model_dump() for turn in message.history]
         try:
             reply = responder(question, context)
         except CoachUnavailableError as exc:

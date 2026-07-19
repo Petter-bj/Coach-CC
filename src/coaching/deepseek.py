@@ -18,6 +18,7 @@ import httpx
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-v4-pro"
+DEFAULT_MAX_TOKENS = 8_000
 
 
 SYSTEM_PROMPT = """Du er den personlige treningscoachen i Trening.
@@ -56,12 +57,39 @@ class CoachReply:
 
 def _message_content(payload: dict[str, Any]) -> str:
     try:
-        content = payload["choices"][0]["message"]["content"]
+        choice = payload["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise CoachUnavailableError("DeepSeek returnerte ikke et coach-svar") from exc
+        raise CoachProviderError("DeepSeek returnerte ikke et coach-svar") from exc
     if not isinstance(content, str) or not content.strip():
-        raise CoachUnavailableError("DeepSeek returnerte et tomt coach-svar")
+        finish_reason = choice.get("finish_reason")
+        raise CoachProviderError(
+            "DeepSeek returnerte et tomt coach-svar"
+            f" (finish_reason={finish_reason or 'ukjent'})"
+        )
     return content.strip()
+
+
+def _conversation_messages(context: dict[str, Any]) -> list[dict[str, str]]:
+    """Normaliser den korte, klientholdte samtalehistorikken.
+
+    DeepSeek er stateless. Historikken sendes derfor med hvert kall, men
+    lagres ikke i databasen. API-laget validerer roller og lengder før den
+    kommer hit; den defensive filtreringen her hindrer likevel at en vilkårlig
+    kontekst endrer systeminstruksen.
+    """
+    messages: list[dict[str, str]] = []
+    history = context.get("conversation_history", [])
+    if not isinstance(history, list):
+        return messages
+    for turn in history[-8:]:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role")
+        content = turn.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+            messages.append({"role": role, "content": content.strip()})
+    return messages
 
 
 def ask_deepseek_coach(
@@ -83,18 +111,32 @@ def ask_deepseek_coach(
         raise CoachUnavailableError("DeepSeek API-nøkkel mangler på serveren")
 
     selected_model = model or os.getenv("DEEPSEEK_MODEL") or DEFAULT_MODEL
+    raw_max_tokens = os.getenv("DEEPSEEK_MAX_TOKENS")
+    try:
+        max_tokens = int(raw_max_tokens) if raw_max_tokens else DEFAULT_MAX_TOKENS
+    except ValueError:
+        max_tokens = DEFAULT_MAX_TOKENS
+    max_tokens = max(1_024, max_tokens)
+    conversation = _conversation_messages(context)
+    model_context = {
+        key: value for key, value in context.items() if key != "conversation_history"
+    }
     user_content = (
         "KURATERT DAGSKONTEKST (JSON):\n"
-        f"{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}\n\n"
+        f"{json.dumps(model_context, ensure_ascii=False, separators=(',', ':'))}\n\n"
         f"BRUKERENS MELDING:\n{question.strip()}"
     )
     request = {
         "model": selected_model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
+            *conversation,
             {"role": "user", "content": user_content},
         ],
-        "max_tokens": 700,
+        # V4-Pro bruker thinking som standard. Budsjettet må romme både
+        # resonnering og et synlig slutt-svar; 700 var for lavt til dette.
+        "thinking": {"type": "enabled"},
+        "max_tokens": max_tokens,
         "stream": False,
     }
 
@@ -106,7 +148,10 @@ def ask_deepseek_coach(
                 json=request,
             )
         else:
-            with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+            # Thinking-svar kan bruke vesentlig lenger enn en vanlig chat.
+            # La UI-et vente på et komplett V4-Pro-svar i stedet for å avbryte
+            # mens modellen fremdeles resonnerer.
+            with httpx.Client(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
                 response = client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {key}"},

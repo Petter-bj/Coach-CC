@@ -12,6 +12,7 @@ const reviewCard = document.querySelector("#review-card");
 const saturday = document.querySelector('[data-day="lørdag"]');
 let toastTimer;
 let currentToday;
+const coachHistory = [];
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 1 });
 const weekdays = ["MAN", "TIR", "ONS", "TOR", "FRE", "LØR", "SØN"];
@@ -123,6 +124,18 @@ function sessionIntensity(session) {
   return labels[session.type] || "Planlagt";
 }
 
+function workoutTitle(type) {
+  const labels = {
+    running: "Løp",
+    treadmill_running: "Mølleløp",
+    cycling: "Sykkel",
+    rowing: "Roing",
+    strength: "Styrke",
+    swimming: "Svømming",
+  };
+  return labels[type] || "Treningsøkt";
+}
+
 function recommendationTitle(kind, session) {
   const plan = session ? "Følg planen som planlagt." : "Hold deg til en rolig, normal dag.";
   const titles = {
@@ -227,6 +240,38 @@ function renderWeek(week, targetDate, reviews = []) {
   });
 }
 
+function renderRecentWorkouts(workouts = []) {
+  const card = document.querySelector("[data-recent-workouts-card]");
+  const list = document.querySelector("[data-recent-workouts-list]");
+  if (!card || !list) return;
+  if (!workouts.length) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  list.replaceChildren();
+  for (const workout of workouts) {
+    const row = document.createElement("div");
+    row.className = "recent-workout-row";
+
+    const day = document.createElement("time");
+    day.textContent = formatDate(workout.local_date);
+    const title = document.createElement("strong");
+    title.textContent = workoutTitle(workout.type);
+    const details = document.createElement("span");
+    const detailParts = [formatWorkoutDuration(workout.duration_sec)];
+    const distance = formatDistance(workout.distance_m);
+    if (distance !== "—") detailParts.push(distance);
+    details.textContent = detailParts.join(" · ");
+    const heartRate = document.createElement("small");
+    heartRate.textContent = workout.avg_hr == null ? "—" : `${number.format(workout.avg_hr)} bpm`;
+
+    row.append(day, title, details, heartRate);
+    list.append(row);
+  }
+}
+
 function hydrateDashboard(payload) {
   currentToday = payload;
   const metrics = payload.metrics || {};
@@ -302,6 +347,7 @@ function hydrateDashboard(payload) {
   setDelta("[data-metric-rhr-delta]", restingHr.delta, "bpm", { lowIsGood: true });
   setText("[data-metric-rhr-foot]", restingHr.baseline === null || restingHr.baseline === undefined ? "Ingen baseline ennå" : `Baseline ${number.format(restingHr.baseline)} bpm`);
 
+  renderRecentWorkouts(payload.recent_workouts);
   renderWeek(payload.week, payload.date, payload.reviews);
   if (payload.reviews?.length) renderReview(payload.reviews[0]);
   else if (reviewCard) reviewCard.hidden = true;
@@ -344,7 +390,7 @@ chatForm.addEventListener("submit", async (event) => {
     const response = await fetch("/api/coach/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ message: question }),
+      body: JSON.stringify({ message: question, history: coachHistory.slice(-8) }),
     });
     if (!response.ok) throw new Error("coach chat failed");
     const payload = await response.json();
@@ -352,6 +398,11 @@ chatForm.addEventListener("submit", async (event) => {
 
     coachAnswer.textContent = payload.answer;
     coachReply.hidden = false;
+    coachHistory.push(
+      { role: "user", content: question },
+      { role: "assistant", content: payload.answer },
+    );
+    if (coachHistory.length > 8) coachHistory.splice(0, coachHistory.length - 8);
     chatMessage.value = "";
   } catch {
     showToast("Coachen svarte ikke. Prøv igjen om litt.");

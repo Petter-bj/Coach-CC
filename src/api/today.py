@@ -111,6 +111,22 @@ def _garmin_sync_at(conn: sqlite3.Connection) -> str | None:
     return row["synced_at"] if row else None
 
 
+def _recent_workouts(conn: sqlite3.Connection, target_date: date) -> list[dict[str, Any]]:
+    """De siste øktene som kan vises som Garmin-/kildebevis på I dag."""
+    rows = conn.execute(
+        """
+        SELECT local_date, type, duration_sec, distance_m, avg_hr, source
+          FROM workouts
+         WHERE superseded_by IS NULL
+           AND local_date <= ?
+         ORDER BY local_date DESC, started_at_utc DESC
+         LIMIT 5
+        """,
+        (target_date.isoformat(),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _latest_garmin_rows(
     conn: sqlite3.Connection, target_date: date
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
@@ -246,5 +262,6 @@ def build_today_payload(conn: sqlite3.Connection, target_date: date | None = Non
             "resting_hr": rhr_metric,
         },
         "week": _week_payload(conn, target_date),
+        "recent_workouts": _recent_workouts(conn, target_date),
         "reviews": _pending_reviews(conn, target_date),
     }
