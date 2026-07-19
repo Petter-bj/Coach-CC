@@ -136,7 +136,7 @@ def _pending_reviews(conn: sqlite3.Connection, target_date: date) -> list[dict[s
     rows = conn.execute(
         """
         SELECT r.id AS review_id, r.status AS review_status, r.coach_source,
-               r.coach_comment, r.created_at,
+               r.coach_comment, r.user_note, r.created_at,
                p.id AS planned_session_id, p.planned_date, p.type,
                p.description, p.target_metrics,
                w.id AS workout_id, w.source AS workout_source,
@@ -175,6 +175,7 @@ def _pending_reviews(conn: sqlite3.Connection, target_date: date) -> list[dict[s
                 "source": row["coach_source"],
                 "comment": row["coach_comment"],
             },
+            "user_note": row["user_note"],
         })
     return reviews
 

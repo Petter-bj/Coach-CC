@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from datetime import date, timedelta
 
@@ -10,6 +11,7 @@ import httpx
 
 from src.api.app import create_app
 from src.api.today import build_today_payload
+from src.coaching.deepseek import CoachReply
 from src.coaching.reviews import ensure_pending_reviews
 from src.db.connection import configure
 from src.db.migrations import migrate
@@ -221,3 +223,145 @@ def test_confirm_review_persists_optional_note_and_removes_pending_card(tmp_path
     assert review["status"] == "reviewed"
     assert review["user_note"] == "Møllefarten var 11,5 km/t."
     assert review["reviewed_at"] is not None
+
+
+def test_review_note_reconsiders_same_card_before_it_can_be_confirmed(tmp_path) -> None:
+    db_path = tmp_path / "trening.db"
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    migrate(conn)
+    _seed(conn, date(2026, 7, 19))
+    assert ensure_pending_reviews(conn) == 1
+    review_id = conn.execute("SELECT id FROM session_reviews").fetchone()["id"]
+    conn.commit()
+    conn.close()
+
+    seen: dict = {}
+
+    def responder(question: str, context: dict) -> CoachReply:
+        seen["question"] = question
+        seen["context"] = context
+        return CoachReply(
+            answer="Med 11,5 km/t på mølla var økta fortsatt kontrollert. Belastningen passer planen.",
+            model="deepseek-v4-pro",
+        )
+
+    async def reconsider_and_confirm() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=db_path,
+                api_token="test-token",
+                coach_responder=responder,
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            reconsidered = await client.post(
+                f"/api/reviews/{review_id}/reconsider",
+                headers={"Authorization": "Bearer test-token"},
+                json={"note": "Møllefarten var 11,5 km/t."},
+            )
+            confirmed = await client.post(
+                f"/api/reviews/{review_id}/confirm",
+                headers={"Authorization": "Bearer test-token"},
+                json={},
+            )
+        return reconsidered, confirmed
+
+    reconsidered, confirmed = asyncio.run(reconsider_and_confirm())
+
+    assert reconsidered.status_code == 200
+    assert reconsidered.json() == {
+        "review": {
+            "id": review_id,
+            "status": "pending",
+            "user_note": "Møllefarten var 11,5 km/t.",
+            "coach_source": "agent",
+            "coach_comment": "Med 11,5 km/t på mølla var økta fortsatt kontrollert. Belastningen passer planen.",
+        },
+        "model": "deepseek-v4-pro",
+        "changes_applied": False,
+    }
+    assert confirmed.status_code == 200
+    assert confirmed.json()["user_note"] == "Møllefarten var 11,5 km/t."
+    assert "Vurder bare denne økten" in seen["question"]
+    review_context = seen["context"]["review_in_progress"]
+    assert review_context["user_reported_deviation"] == "Møllefarten var 11,5 km/t."
+    assert review_context["actual"]["duration_sec"] == 3480
+    assert "id" not in json.dumps(review_context)
+
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    review = conn.execute(
+        "SELECT status, user_note, coach_source, coach_comment, reviewed_at "
+        "FROM session_reviews WHERE id = ?",
+        (review_id,),
+    ).fetchone()
+    conn.close()
+    assert review["status"] == "reviewed"
+    assert review["user_note"] == "Møllefarten var 11,5 km/t."
+    assert review["coach_source"] == "agent"
+    assert review["coach_comment"].startswith("Med 11,5 km/t")
+    assert review["reviewed_at"] is not None
+
+
+def test_coach_chat_is_private_read_only_and_receives_curated_context(tmp_path) -> None:
+    db_path = tmp_path / "trening.db"
+    target = date.today()
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    migrate(conn)
+    _seed(conn, target)
+    conn.execute(
+        "INSERT INTO goals (title, priority) VALUES ('Raskere 10 km', 'A')"
+    )
+    conn.execute(
+        """
+        INSERT INTO garmin_activity_details (
+            workout_id, garmin_activity_id, start_latitude, start_longitude, raw_json
+        ) VALUES (1, 99, 59.9, 10.7, '{"sensitive": true}')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    seen: dict = {}
+
+    def responder(question: str, context: dict) -> CoachReply:
+        seen["question"] = question
+        seen["context"] = context
+        return CoachReply(answer="Forslag: hold økta rolig. Planen er ikke endret.",
+                          model="deepseek-v4-pro")
+
+    async def chat() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=db_path,
+                api_token="test-token",
+                coach_responder=responder,
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            denied = await client.post("/api/coach/chat", json={"message": "Hva nå?"})
+            allowed = await client.post(
+                "/api/coach/chat",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Bør jeg løpe?"},
+            )
+        return denied, allowed
+
+    denied, allowed = asyncio.run(chat())
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json() == {
+        "answer": "Forslag: hold økta rolig. Planen er ikke endret.",
+        "model": "deepseek-v4-pro",
+        "changes_applied": False,
+    }
+    assert seen["question"] == "Bør jeg løpe?"
+    assert seen["context"]["goals"][0]["title"] == "Raskere 10 km"
+    assert seen["context"]["recent_workouts"]
+    encoded_context = json.dumps(seen["context"])
+    assert "start_latitude" not in encoded_context
+    assert "start_longitude" not in encoded_context
+    assert "sensitive" not in encoded_context

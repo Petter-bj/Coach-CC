@@ -2,7 +2,12 @@ const toast = document.querySelector(".toast");
 const navButtons = document.querySelectorAll("[data-view]");
 const chatForm = document.querySelector("#chat-form");
 const chatMessage = document.querySelector("#chat-message");
+const chatButton = chatForm.querySelector("button");
+const coachReply = document.querySelector("#coach-reply");
+const coachAnswer = document.querySelector("[data-coach-answer]");
 const reviewForm = document.querySelector("#review-form");
+const reviewNote = document.querySelector("#review-note");
+const reviewButton = reviewForm.querySelector("button");
 const reviewCard = document.querySelector("#review-card");
 const saturday = document.querySelector('[data-day="lørdag"]');
 let toastTimer;
@@ -166,6 +171,28 @@ function renderReview(review) {
   setText("[data-review-distance]", formatDistance(actual.distance_m));
   setText("[data-review-distance-plan]", "plan: —");
   setText("[data-review-comment]", review.coach?.comment || "Økten er registrert og klar for vurdering.");
+  reviewNote.value = "";
+  updateReviewAction();
+}
+
+function updateReviewAction() {
+  if (!reviewButton || reviewButton.disabled) return;
+  reviewButton.textContent = reviewNote.value.trim()
+    ? "Oppdater vurdering"
+    : "Marker som vurdert";
+}
+
+function markReviewConfirmed() {
+  // Når det store gule kortet kollapser, kan nettleserens scroll-anchoring
+  // ellers flytte brukeren mange hundre piksler. Behold stedet de var på og
+  // la bare selve innholdet i kortet endre seg.
+  const scrollY = window.scrollY;
+  const restoreScroll = () => window.scrollTo(0, scrollY);
+  reviewCard.classList.add("reviewed");
+  // Dobbelt animation frame + en kort timeout dekker både layout-skiftet og
+  // nettleserens etterfølgende scroll-anchoring (særlig på mobil-Safari).
+  window.requestAnimationFrame(() => window.requestAnimationFrame(restoreScroll));
+  window.setTimeout(restoreScroll, 80);
 }
 
 function renderWeek(week, targetDate, reviews = []) {
@@ -303,53 +330,103 @@ navButtons.forEach((button) => {
   });
 });
 
-chatForm.addEventListener("submit", (event) => {
+chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = chatMessage.value.trim();
   if (!question) {
     chatMessage.focus();
     return;
   }
-  showToast("Chat kobles på når Kimi-harnesset bygges. Spørsmålet ditt ble ikke sendt.");
+
+  chatButton.disabled = true;
+  chatButton.textContent = "Tenker …";
+  try {
+    const response = await fetch("/api/coach/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ message: question }),
+    });
+    if (!response.ok) throw new Error("coach chat failed");
+    const payload = await response.json();
+    if (!payload.answer) throw new Error("coach answer missing");
+
+    coachAnswer.textContent = payload.answer;
+    coachReply.hidden = false;
+    chatMessage.value = "";
+  } catch {
+    showToast("Coachen svarte ikke. Prøv igjen om litt.");
+  } finally {
+    chatButton.disabled = false;
+    chatButton.textContent = "Send";
+  }
 });
 
 reviewForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const note = document.querySelector("#review-note").value.trim();
+  const note = reviewNote.value.trim();
   const reviewId = reviewForm.dataset.reviewId;
 
   if (!reviewId) {
     // Det statiske previewet har ingen database. Behold interaksjonen der som
-    // en ren visuell demonstrasjon.
-    reviewCard.classList.add("reviewed");
+    // en ren visuell demonstrasjon av begge review-stegene.
+    if (note) {
+      setText(
+        "[data-review-comment]",
+        "Notatet ditt er tatt med i en oppdatert vurdering. Se gjennom vurderingen før du markerer økten som vurdert.",
+      );
+      reviewNote.value = "";
+      updateReviewAction();
+      showToast("Coachen har oppdatert vurderingen. Kortet venter fortsatt på bekreftelse.");
+      return;
+    }
+    markReviewConfirmed();
     saturday?.classList.remove("review");
     saturday?.classList.add("done");
     saturday?.querySelector("i")?.replaceChildren("✓");
-    showToast(note ? "Vurderingen ble lagret med notatet ditt." : "Økten er markert som vurdert.");
+    showToast("Økten er markert som vurdert.");
     return;
   }
 
-  const button = reviewForm.querySelector("button");
-  button.disabled = true;
-  button.textContent = "Lagrer …";
+  const isReconsideration = Boolean(note);
+  reviewButton.disabled = true;
+  reviewButton.textContent = isReconsideration ? "Vurderer …" : "Lagrer …";
   try {
-    const response = await fetch(`/api/reviews/${reviewId}/confirm`, {
+    const endpoint = isReconsideration ? "reconsider" : "confirm";
+    const response = await fetch(`/api/reviews/${reviewId}/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ note: note || null }),
+      body: JSON.stringify({ note: isReconsideration ? note : null }),
     });
-    if (!response.ok) throw new Error("review confirmation failed");
+    if (!response.ok) throw new Error("review request failed");
+    const payload = await response.json();
 
-    reviewCard.classList.add("reviewed");
+    if (isReconsideration) {
+      const updated = payload.review;
+      setText("[data-review-comment]", updated?.coach_comment || "Vurderingen ble oppdatert.");
+      reviewNote.value = "";
+      if (currentToday?.reviews) {
+        const review = currentToday.reviews.find((item) => item.id === Number(reviewId));
+        if (review) {
+          review.coach = { source: updated?.coach_source, comment: updated?.coach_comment };
+          review.user_note = updated?.user_note;
+        }
+      }
+      showToast("Coachen har oppdatert vurderingen. Se gjennom den før du bekrefter.");
+      return;
+    }
+
+    markReviewConfirmed();
     currentToday.reviews = currentToday.reviews.filter((review) => review.id !== Number(reviewId));
     renderWeek(currentToday.week, currentToday.date, currentToday.reviews);
     showToast(note ? "Vurderingen ble lagret med notatet ditt." : "Økten er markert som vurdert.");
   } catch {
-    showToast("Kunne ikke lagre vurderingen. Prøv igjen.");
+    showToast(isReconsideration ? "Coachen kunne ikke oppdatere vurderingen. Prøv igjen." : "Kunne ikke lagre vurderingen. Prøv igjen.");
   } finally {
-    button.disabled = false;
-    button.textContent = "Marker som vurdert";
+    reviewButton.disabled = false;
+    updateReviewAction();
   }
 });
+
+reviewNote.addEventListener("input", updateReviewAction);
 
 loadToday();

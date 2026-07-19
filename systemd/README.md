@@ -81,8 +81,22 @@ Verifiser lokalt på VPS-en uten å skrive ut nøkkelen:
 sudo sh -c '. /var/lib/trening/credentials/api.env && curl -fsS -H "Authorization: Bearer $TRENING_API_TOKEN" http://127.0.0.1:8080/health'
 ```
 
-API-et eksponerer foreløpig `GET /health`, `GET /api/today` og den smale
-skrivehandlingen `POST /api/reviews/{id}/confirm`. `api/today` skiller
-automatisk Garmin-data, den deterministiske coach-anbefalingen, planlagte
-økter, baseline-endringer, ukestatus og pending reviews. Bekreftelse kan kun
-lagre et valgfritt notat; coach-fritekst og planendringer kommer senere.
+API-et eksponerer `GET /health`, `GET /api/today`, den smale skrivehandlingen
+`POST /api/reviews/{id}/confirm`, og den foreløpig kun lesende
+`POST /api/coach/chat`. `api/today` skiller automatisk Garmin-data, den
+deterministiske coach-anbefalingen, planlagte økter, baseline-endringer,
+ukestatus og pending reviews.
+
+Coachen bruker DeepSeek V4-Pro, men får kun en kuratert kontekst. Den får aldri
+FIT-samples, GPS-posisjoner, kontoinformasjon, rå matvarelogg, database- eller
+shelltilgang. Nøkkelen bor separat på VPS-en og skal ha samme eier/modus som
+`api.env`:
+
+```bash
+sudo chown trening:trening /var/lib/trening/credentials/deepseek.env
+sudo chmod 600 /var/lib/trening/credentials/deepseek.env
+```
+
+Den første chat-versjonen kan ikke gjøre endringer. Planforslag og en
+eksplisitt godkjenningshandling bygges som et eget steg, slik at et modellsvar
+aldri kan skrive til planen eller Garmin av seg selv.
