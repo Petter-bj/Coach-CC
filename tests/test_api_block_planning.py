@@ -150,3 +150,55 @@ def test_overlapping_block_proposal_cannot_create_an_orphan_goal(tmp_path) -> No
         assert conn.execute("SELECT COUNT(*) AS n FROM goals").fetchone()["n"] == 1
     finally:
         conn.close()
+
+
+def test_block_coach_history_survives_new_page_loads_and_feeds_next_answer(tmp_path) -> None:
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    conn.commit()
+    conn.close()
+    seen_contexts: list[list[dict]] = []
+
+    def responder(question: str, context: dict) -> BlockCoachReply:
+        seen_contexts.append(context.get("conversation_history", []))
+        return BlockCoachReply(
+            answer=f"Svar på: {question}",
+            model="deepseek-v4-pro",
+            proposal=None,
+        )
+
+    async def talk_then_reload() -> tuple[httpx.Response, httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(db_path=path, api_token="test-token", block_coach_responder=responder)
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            first = await client.post(
+                "/api/blocks/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Jeg vil prioritere løping denne høsten"},
+            )
+            history = await client.get(
+                "/api/blocks/coach/history",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            second = await client.post(
+                "/api/blocks/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Hva bør det bety for blokken?"},
+            )
+        return first, history, second
+
+    first, history, second = asyncio.run(talk_then_reload())
+
+    assert first.status_code == 200
+    assert history.status_code == 200
+    assert history.json()["messages"] == [
+        {"role": "user", "content": "Jeg vil prioritere løping denne høsten"},
+        {"role": "assistant", "content": "Svar på: Jeg vil prioritere løping denne høsten", "model": "deepseek-v4-pro"},
+    ]
+    assert second.status_code == 200
+    assert seen_contexts[0] == []
+    assert seen_contexts[1] == [
+        {"role": "user", "content": "Jeg vil prioritere løping denne høsten"},
+        {"role": "assistant", "content": "Svar på: Jeg vil prioritere løping denne høsten"},
+    ]

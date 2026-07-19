@@ -27,6 +27,7 @@ const blockChatMessage = document.querySelector("#block-chat-message");
 const blockChatButton = blockChatForm?.querySelector("button");
 const blockCoachReply = document.querySelector("[data-block-coach-reply]");
 const blockCoachAnswer = document.querySelector("[data-block-coach-answer]");
+const blockConversation = document.querySelector("[data-block-conversation]");
 const blockProposal = document.querySelector("[data-block-proposal]");
 const blockProposalWeeks = document.querySelector("[data-block-proposal-weeks]");
 const workoutDetailModal = document.querySelector("[data-workout-detail-modal]");
@@ -40,6 +41,7 @@ let currentBlockProposal;
 const coachHistory = [];
 const weekCoachHistory = [];
 const blockCoachHistory = [];
+let blockConversationExpanded = false;
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 1 });
 const weekdays = ["MAN", "TIR", "ONS", "TOR", "FRE", "LØR", "SØN"];
@@ -793,6 +795,54 @@ function clearBlockProposal() {
   if (blockProposalWeeks) blockProposalWeeks.replaceChildren();
 }
 
+function renderBlockConversation(messages = []) {
+  if (!blockConversation) return;
+  const visibleMessages = messages.filter((message) => (
+    message?.role === "user" || message?.role === "assistant"
+  ) && typeof message.content === "string" && message.content.trim());
+  blockCoachHistory.splice(0, blockCoachHistory.length, ...visibleMessages.map(({ role, content }) => ({ role, content })));
+  blockConversation.replaceChildren();
+  if (!visibleMessages.length) {
+    blockConversation.hidden = true;
+    return;
+  }
+  const latestCoachMessage = [...visibleMessages].reverse().find((message) => message.role === "assistant")
+    || visibleMessages.at(-1);
+  const displayedMessages = blockConversationExpanded ? visibleMessages : [latestCoachMessage];
+  displayedMessages.forEach((message) => {
+    const card = document.createElement("article");
+    card.className = `block-conversation-message ${message.role}`;
+    const label = document.createElement("p");
+    label.className = "eyebrow";
+    label.textContent = message.role === "user" ? "DU" : "COACH";
+    const copy = document.createElement("p");
+    copy.textContent = message.content;
+    card.append(label, copy);
+    if (message.role === "assistant" && message.model) {
+      const model = document.createElement("small");
+      model.textContent = message.model;
+      card.append(model);
+    }
+    blockConversation.append(card);
+  });
+  if (visibleMessages.length > 1) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "block-conversation-toggle";
+    toggle.setAttribute("aria-expanded", String(blockConversationExpanded));
+    toggle.textContent = blockConversationExpanded
+      ? "Vis bare siste svar"
+      : `Vis hele samtalen · ${visibleMessages.length} meldinger`;
+    toggle.addEventListener("click", () => {
+      blockConversationExpanded = !blockConversationExpanded;
+      renderBlockConversation(visibleMessages);
+    });
+    blockConversation.append(toggle);
+  }
+  blockConversation.hidden = false;
+  if (blockCoachReply) blockCoachReply.hidden = true;
+}
+
 function blockPayloadFromProposal(candidate) {
   return {
     block: {
@@ -1039,12 +1089,28 @@ async function loadWeek(start) {
 }
 
 async function loadBlock() {
+  void loadBlockConversation();
   try {
     const response = await fetch("/api/blocks", { headers: { Accept: "application/json" } });
     if (!response.ok) throw new Error("block unavailable");
     renderBlock(await response.json());
   } catch {
     // Statisk eksempelblokk i previewet er med hensikt representativ.
+  }
+}
+
+async function loadBlockConversation() {
+  if (window.location.protocol === "file:") {
+    if (blockCoachHistory.length) renderBlockConversation(blockCoachHistory);
+    return;
+  }
+  try {
+    const response = await fetch("/api/blocks/coach/history", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("block conversation unavailable");
+    const payload = await response.json();
+    renderBlockConversation(payload.messages || []);
+  } catch {
+    // Ikke fjern den allerede viste samtalen hvis nettverket er midlertidig nede.
   }
 }
 
@@ -1472,10 +1538,15 @@ blockChatForm?.addEventListener("submit", async (event) => {
     const payload = await response.json();
     if (!payload.answer) throw new Error("block coach answer missing");
     blockCoachAnswer.textContent = payload.answer;
-    if (blockCoachReply) blockCoachReply.hidden = false;
     setText("[data-block-coach-model]", `${payload.model || "V4-Pro"} · Ingen endring er gjort`);
-    blockCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
-    if (blockCoachHistory.length > 8) blockCoachHistory.splice(0, blockCoachHistory.length - 8);
+    blockConversationExpanded = false;
+    if (payload.messages) {
+      renderBlockConversation(payload.messages);
+    } else {
+      blockCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
+      if (blockCoachHistory.length > 8) blockCoachHistory.splice(0, blockCoachHistory.length - 8);
+      renderBlockConversation(blockCoachHistory);
+    }
     if (payload.proposal) renderBlockProposal(payload.proposal);
     if (blockChatMessage) blockChatMessage.value = "";
   } catch {
@@ -1485,10 +1556,11 @@ blockChatForm?.addEventListener("submit", async (event) => {
     }
     const preview = previewBlockCoachReply(question);
     blockCoachAnswer.textContent = preview.answer;
-    if (blockCoachReply) blockCoachReply.hidden = false;
     setText("[data-block-coach-model]", `${preview.model} · Ingen endring er gjort`);
     blockCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: preview.answer });
     if (blockCoachHistory.length > 8) blockCoachHistory.splice(0, blockCoachHistory.length - 8);
+    blockConversationExpanded = false;
+    renderBlockConversation(blockCoachHistory);
     if (preview.proposal) renderBlockProposal({ id: null, proposal: preview.proposal, status: "pending" });
     if (blockChatMessage) blockChatMessage.value = "";
   } finally {

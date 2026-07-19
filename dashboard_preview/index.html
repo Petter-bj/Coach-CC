@@ -280,11 +280,7 @@
               <div><p class="eyebrow pink">BLOKKCOACH</p><h2>Lag planen sammen før ukene fylles med økter</h2><p>Beskriv målet, hvor lang tid du har og hva som må tas hensyn til. Du kan også diskutere eller justere blokken som ligger her. Coachen viser alltid et konkret blokkforslag før noe lagres.</p></div>
               <span class="block-coach-scope" data-block-coach-scope>STRATEGI · 2–12 UKER</span>
             </div>
-            <form class="block-chat-input" id="block-chat-form">
-              <label class="sr-only" for="block-chat-message">Snakk med coachen om treningsblokken</label>
-              <input id="block-chat-message" type="text" autocomplete="off" placeholder="F.eks. «Lag en seksukers blokk for å komme tilbake til stabil løping»" />
-              <button type="submit">Send</button>
-            </form>
+            <section class="block-conversation" data-block-conversation hidden aria-label="Samtale med blokkcoachen" aria-live="polite"></section>
             <section class="block-coach-reply" data-block-coach-reply hidden aria-live="polite">
               <p class="eyebrow pink">COACH</p>
               <p data-block-coach-answer></p>
@@ -298,6 +294,11 @@
               <p class="block-proposal-note">Dette oppretter eller endrer bare den strategiske blokken. Enkeltøkter blir fortsatt lagt i hver uke senere.</p>
               <div class="block-proposal-actions"><button type="button" class="secondary-action" data-block-proposal-discard>Forkast</button><button type="button" class="primary-action" data-block-proposal-apply>Bruk blokkforslaget</button></div>
             </section>
+            <form class="block-chat-input" id="block-chat-form">
+              <label class="sr-only" for="block-chat-message">Snakk med coachen om treningsblokken</label>
+              <input id="block-chat-message" type="text" autocomplete="off" placeholder="F.eks. «Lag en seksukers blokk for å komme tilbake til stabil løping»" />
+              <button type="submit">Send</button>
+            </form>
           </article>
 
           <section class="block-principles" aria-label="Blokkens prinsipper">

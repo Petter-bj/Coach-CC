@@ -14,6 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.api.coach import build_coach_context
+from src.api.conversations import (
+    BLOCK_THREAD,
+    append_exchange,
+    client_history,
+    conversation_history,
+)
 from src.api.blocks import build_block_payload
 from src.api.block_planning import (
     apply_block_proposal,
@@ -156,6 +162,11 @@ def create_app(
         with connect(db_path) as conn:
             return build_block_payload(conn, day)
 
+    @app.get("/api/blocks/coach/history", dependencies=[Depends(auth)])
+    def block_coach_history() -> dict[str, list[dict[str, str]]]:
+        with connect(db_path) as conn:
+            return {"messages": conversation_history(conn, thread=BLOCK_THREAD)}
+
     @app.post("/api/blocks/coach", dependencies=[Depends(auth)])
     def block_coach_chat(message: CoachMessage) -> dict[str, Any]:
         """Diskuter én blokk og lagre bare en uapplisert strategidiff."""
@@ -165,8 +176,13 @@ def create_app(
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
             context = build_block_coach_context(conn)
-        if message.history:
-            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+            stored_history = conversation_history(conn, thread=BLOCK_THREAD)
+        # Historikk fra VPS-en er fasit. Et nytt klientvindu kan dermed hente
+        # samme samtale, mens client-history bare fungerer som en myk overgang
+        # for en allerede åpen side under deploy.
+        context["conversation_history"] = client_history(stored_history) or [
+            turn.model_dump() for turn in message.history
+        ]
         try:
             reply = block_responder(question, context)
         except CoachUnavailableError as exc:
@@ -182,9 +198,9 @@ def create_app(
 
         validated = validate_block_proposal(reply.proposal, context=context)
         proposal = None
-        if validated is not None:
-            candidate, target_block_id = validated
-            with connect(db_path) as conn:
+        with connect(db_path) as conn:
+            if validated is not None:
+                candidate, target_block_id = validated
                 proposal = create_block_proposal(
                     conn,
                     target_block_id=target_block_id,
@@ -192,11 +208,19 @@ def create_app(
                     coach_answer=reply.answer,
                     proposal=candidate,
                 )
+            history = append_exchange(
+                conn,
+                thread=BLOCK_THREAD,
+                question=question,
+                answer=reply.answer,
+                model=reply.model,
+            )
         return {
             "answer": reply.answer,
             "model": reply.model,
             "changes_applied": False,
             "proposal": proposal,
+            "messages": history,
         }
 
     @app.get("/api/days/{day}", dependencies=[Depends(auth)])
