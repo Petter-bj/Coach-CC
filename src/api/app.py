@@ -452,6 +452,37 @@ def create_app(
             )
         return {"id": proposal_id, "status": "applied", "hevy_routine_id": routine_id}
 
+    @app.post(
+        "/api/hevy-routine-proposals/{proposal_id}/confirm-created",
+        dependencies=[Depends(auth)],
+    )
+    def confirm_hevy_routine_proposal_created(proposal_id: int) -> dict[str, Any]:
+        """Lukk et forslag når brukeren eksplisitt har sett malen i Hevy.
+
+        Reserveflyt for et sjeldent, men viktig tilfelle: Hevy kan ha utført
+        POST-en uten at dashboardet fikk en brukbar kvittering. Vi gjetter
+        aldri; denne ruten krever et bevisst klikk fra brukeren som faktisk
+        ser malen i Hevy.
+        """
+        with connect(db_path) as conn:
+            pending = pending_hevy_routine_proposal(conn, proposal_id)
+            if pending is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Hevy-forslaget finnes ikke eller er allerede håndtert",
+                )
+            applied = mark_hevy_routine_proposal_applied(
+                conn,
+                proposal_id,
+                hevy_routine_id="confirmed-in-hevy",
+            )
+        if not applied:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Hevy-forslaget ble håndtert mens bekreftelsen ble lagret",
+            )
+        return {"id": proposal_id, "status": "applied", "hevy_routine_id": "confirmed-in-hevy"}
+
     @app.post("/api/hevy-routine-proposals/{proposal_id}/coach", dependencies=[Depends(auth)])
     def discuss_hevy_routine_proposal(proposal_id: int, message: CoachMessage) -> dict[str, Any]:
         """Svar om eller erstatt ett Hevy-utkast, uten å opprette i Hevy.

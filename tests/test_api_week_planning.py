@@ -11,6 +11,7 @@ import httpx
 
 from src.api.app import create_app
 from src.api.blocks import build_block_payload
+from src.api.hevy_routines import create_hevy_routine_proposal
 from src.api.week import build_week_overview
 from src.api.week_planning import build_week_coach_context
 from src.coaching.deepseek import WeeklyCoachReply
@@ -450,6 +451,50 @@ def test_weekly_coach_requires_confirmation_before_creating_hevy_routine(tmp_pat
     finally:
         conn.close()
     assert dict(row) == {"status": "applied", "hevy_routine_id": "hevy-routine-123"}
+
+
+def test_user_can_confirm_a_hevy_routine_seen_after_a_missing_receipt(tmp_path) -> None:
+    """Reserveknappen lukker bare et fortsatt ventende forslag."""
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    proposal = create_hevy_routine_proposal(
+        conn,
+        week_start="2026-07-20",
+        question="Lag en Hevy-mal.",
+        coach_answer="Her er malen.",
+        routine={
+            "title": "Fullkropp A",
+            "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+        },
+    )
+    conn.commit()
+    conn.close()
+
+    async def confirm() -> httpx.Response:
+        transport = httpx.ASGITransport(app=create_app(db_path=path, api_token="test-token"))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                f"/api/hevy-routine-proposals/{proposal['id']}/confirm-created",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    response = asyncio.run(confirm())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": proposal["id"],
+        "status": "applied",
+        "hevy_routine_id": "confirmed-in-hevy",
+    }
+    conn = _db(path)
+    try:
+        row = conn.execute(
+            "SELECT status, hevy_routine_id FROM hevy_routine_proposals WHERE id = ?",
+            (proposal["id"],),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert dict(row) == {"status": "applied", "hevy_routine_id": "confirmed-in-hevy"}
 
 
 def test_weekly_coach_returns_separate_hevy_and_injury_proposals(tmp_path) -> None:

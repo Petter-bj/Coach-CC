@@ -84,6 +84,77 @@ def _exercise_id(name: str, templates: list[dict[str, Any]]) -> str:
     raise HevyRoutineError(f"Fant ikke en entydig Hevy-øvelse for «{name}».{suggestion}")
 
 
+def _routine_id_from_response(body: Any) -> str | None:
+    """Hent en ID fra Hevys normale respons, uten å anta én eksakt innpakking."""
+    if not isinstance(body, dict):
+        return None
+    routine = body.get("routine")
+    candidate = routine if isinstance(routine, dict) else body
+    routine_id = candidate.get("id")
+    return routine_id if isinstance(routine_id, str) and routine_id else None
+
+
+def _routine_matches_created_payload(candidate: dict[str, Any], payload: dict[str, Any]) -> bool:
+    """Er dette sannsynligvis akkurat malen vi nettopp sendte til Hevy?"""
+    routine = candidate.get("routine") if isinstance(candidate.get("routine"), dict) else candidate
+    expected = payload["routine"]
+    if routine.get("title") != expected["title"]:
+        return False
+
+    # Rutine-listen inneholder normalt øvelsene. Når den gjør det, bruker vi
+    # dem som ekstra vern mot å knytte et gammelt likt navngitt utkast til et
+    # nytt forslag.
+    exercises = routine.get("exercises")
+    if not isinstance(exercises, list):
+        return True
+    expected_ids = [item["exercise_template_id"] for item in expected["exercises"]]
+    candidate_ids = [item.get("exercise_template_id") for item in exercises if isinstance(item, dict)]
+    return candidate_ids == expected_ids
+
+
+def _find_recently_created_routine_id(
+    client: httpx.Client,
+    payload: dict[str, Any],
+) -> str | None:
+    """Finn en mal igjen hvis Hevy opprettet den, men unnlot å gi oss ID-en.
+
+    Dette brukes *kun* etter et vellykket POST-svar uten ID. Det er dermed en
+    sikkerhetsventil mot en inkonsistent respons, ikke en forhåndssjekk som kan
+    gjøre en vanlig, bevisst ny mal til en uventet gjenbruk av en gammel.
+    """
+    matches: list[dict[str, Any]] = []
+    try:
+        page = 1
+        while True:
+            response = client.get(
+                f"{API_BASE}/routines",
+                headers=_headers(),
+                params={"page": page, "pageSize": PAGE_SIZE},
+            )
+            response.raise_for_status()
+            body = response.json()
+            batch = body.get("routines") or []
+            if not isinstance(batch, list):
+                return None
+            matches.extend(
+                item for item in batch
+                if isinstance(item, dict) and _routine_matches_created_payload(item, payload)
+            )
+            if page >= (body.get("page_count") or 1) or not batch:
+                break
+            page += 1
+    except (httpx.HTTPError, ValueError):
+        return None
+
+    # API-et oppgir nyeste rutiner først. Vi bruker bare første mulige treff
+    # når det har en reell Hevy-ID; ellers lar vi forslaget stå urørt.
+    for match in matches:
+        routine_id = _routine_id_from_response(match)
+        if routine_id:
+            return routine_id
+    return None
+
+
 def create_routine(
     routine: dict[str, Any],
     *,
@@ -114,16 +185,22 @@ def create_routine(
     try:
         response = client.post(f"{API_BASE}/routines", headers=_headers(), json=payload)
         response.raise_for_status()
-        body = response.json()
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        routine_id = _routine_id_from_response(body)
+        if routine_id:
+            return routine_id
+
+        routine_id = _find_recently_created_routine_id(client, payload)
+        if routine_id:
+            return routine_id
+        raise HevyRoutineError(
+            "Hevy opprettet muligens malen, men bekreftet ikke ID-en. Sjekk Hevy før du prøver igjen."
+        )
     except httpx.HTTPError as exc:
         raise HevyRoutineError("Hevy kunne ikke opprette malen akkurat nå") from exc
-    except ValueError as exc:
-        raise HevyRoutineError("Hevy svarte med ugyldige data etter opprettelsen") from exc
     finally:
         if close_client:
             client.close()
-    created = body.get("routine") if isinstance(body, dict) else None
-    routine_id = (created or body).get("id") if isinstance(created or body, dict) else None
-    if not isinstance(routine_id, str) or not routine_id:
-        raise HevyRoutineError("Hevy bekreftet ikke ID-en til den nye malen")
-    return routine_id

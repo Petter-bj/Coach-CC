@@ -68,6 +68,36 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove("show"), 3200);
 }
 
+function resizeChatField(field) {
+  if (!(field instanceof HTMLTextAreaElement)) return;
+  const maximumHeight = Number.parseFloat(getComputedStyle(field).maxHeight) || 176;
+  field.style.height = "auto";
+  field.style.height = `${Math.min(field.scrollHeight, maximumHeight)}px`;
+  field.style.overflowY = field.scrollHeight > maximumHeight ? "auto" : "hidden";
+}
+
+function clearChatField(field) {
+  if (!field) return;
+  field.value = "";
+  resizeChatField(field);
+}
+
+function setChatFieldBusy(field, busy) {
+  if (field) field.disabled = busy;
+}
+
+document.querySelectorAll("textarea[data-auto-expand]").forEach(resizeChatField);
+document.addEventListener("input", (event) => {
+  if (event.target.matches("textarea[data-auto-expand]")) resizeChatField(event.target);
+});
+document.addEventListener("keydown", (event) => {
+  const field = event.target;
+  if (!(field instanceof HTMLTextAreaElement) || !field.matches("textarea[data-auto-expand]")) return;
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  field.closest("form")?.requestSubmit();
+});
+
 function setActiveView(button) {
   const view = button.dataset.view;
   document.querySelectorAll(".nav-item, .mobile-nav-item").forEach((item) => {
@@ -1556,7 +1586,13 @@ function buildHevyProposalCard(proposal, key) {
   apply.className = "primary-action";
   apply.dataset.hevyProposalApply = key;
   apply.textContent = "Opprett i Hevy";
-  actions.append(discard, feedback, apply);
+  const confirmCreated = document.createElement("button");
+  confirmCreated.type = "button";
+  confirmCreated.className = "secondary-action hevy-created-confirm";
+  confirmCreated.dataset.hevyProposalConfirmCreated = key;
+  confirmCreated.hidden = true;
+  confirmCreated.textContent = "Malen finnes i Hevy";
+  actions.append(discard, feedback, confirmCreated, apply);
   card.append(actions);
 
   const feedbackArea = document.createElement("div");
@@ -1582,11 +1618,12 @@ function buildHevyProposalCard(proposal, key) {
   label.className = "sr-only";
   label.htmlFor = `hevy-feedback-${key}`;
   label.textContent = `Spør om eller juster ${routine.title}`;
-  const input = document.createElement("input");
+  const input = document.createElement("textarea");
   input.id = `hevy-feedback-${key}`;
   input.name = "feedback";
-  input.type = "text";
+  input.rows = 1;
   input.autocomplete = "off";
+  input.dataset.autoExpand = "";
   input.placeholder = "Spør om eller juster malen — f.eks. «bytt squat med leg press»";
   const submit = document.createElement("button");
   submit.type = "submit";
@@ -1845,6 +1882,7 @@ chatForm.addEventListener("submit", async (event) => {
 
   chatButton.disabled = true;
   chatButton.textContent = "Tenker …";
+  setChatFieldBusy(chatMessage, true);
   clearInjuryProposal();
   try {
     const response = await fetch("/api/coach/chat", {
@@ -1864,7 +1902,7 @@ chatForm.addEventListener("submit", async (event) => {
     );
     if (coachHistory.length > 8) coachHistory.splice(0, coachHistory.length - 8);
     if (payload.injury_proposal) renderInjuryProposal(payload.injury_proposal);
-    chatMessage.value = "";
+    clearChatField(chatMessage);
   } catch {
     const preview = previewCoachReply(question);
     if (!preview) {
@@ -1874,10 +1912,11 @@ chatForm.addEventListener("submit", async (event) => {
     coachAnswer.textContent = preview.answer;
     coachReply.hidden = false;
     if (preview.injury_proposal) renderInjuryProposal(preview.injury_proposal);
-    chatMessage.value = "";
+    clearChatField(chatMessage);
   } finally {
     chatButton.disabled = false;
     chatButton.textContent = "Send";
+    setChatFieldBusy(chatMessage, false);
   }
 });
 
@@ -1991,6 +2030,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekChatButton.disabled = true;
     weekChatButton.textContent = "Tenker …";
   }
+  setChatFieldBusy(weekChatMessage, true);
   clearWeekProposal();
   clearWeekInjuryProposal();
   clearHevyRoutineProposals();
@@ -2014,7 +2054,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     // Ny liste-form med bakoverkompatibelt enkelt-felt.
     const proposals = payload.hevy_proposals || (payload.hevy_proposal ? [payload.hevy_proposal] : []);
     if (proposals.length) renderHevyRoutineProposals(proposals);
-    if (weekChatMessage) weekChatMessage.value = "";
+    clearChatField(weekChatMessage);
   } catch {
     const preview = previewWeekCoachReply(question);
     weekCoachAnswer.textContent = preview.answer;
@@ -2024,12 +2064,13 @@ weekChatForm?.addEventListener("submit", async (event) => {
     if (preview.injury_proposal) renderWeekInjuryProposal(preview.injury_proposal);
     const previewProposals = preview.hevy_proposals || (preview.hevy_proposal ? [preview.hevy_proposal] : []);
     if (previewProposals.length) renderHevyRoutineProposals(previewProposals);
-    if (weekChatMessage) weekChatMessage.value = "";
+    clearChatField(weekChatMessage);
   } finally {
     if (weekChatButton) {
       weekChatButton.disabled = false;
       weekChatButton.textContent = "Send";
     }
+    setChatFieldBusy(weekChatMessage, false);
   }
 });
 
@@ -2097,7 +2138,11 @@ hevyRoutineProposals?.addEventListener("click", async (event) => {
     if (!form) return;
     form.hidden = !form.hidden;
     feedbackButton.textContent = form.hidden ? "Spør / juster" : "Lukk";
-    if (!form.hidden) form.querySelector("input")?.focus();
+    if (!form.hidden) {
+      const field = form.querySelector("textarea");
+      resizeChatField(field);
+      field?.focus();
+    }
     return;
   }
 
@@ -2126,7 +2171,40 @@ hevyRoutineProposals?.addEventListener("click", async (event) => {
     } catch (error) {
       applyButton.disabled = false;
       applyButton.textContent = "Opprett i Hevy";
-      showToast(error?.message || "Kunne ikke opprette Hevy-malen. Ingenting er endret i Hevy.");
+      const confirmButton = hevyRoutineProposals.querySelector(`[data-hevy-proposal-confirm-created="${key}"]`);
+      if (confirmButton) confirmButton.hidden = false;
+      showToast(error?.message || "Kunne ikke få kvittering fra Hevy. Hvis malen dukket opp der, velg «Malen finnes i Hevy».");
+    }
+    return;
+  }
+
+  const confirmCreatedButton = event.target.closest("[data-hevy-proposal-confirm-created]");
+  if (confirmCreatedButton) {
+    const key = confirmCreatedButton.dataset.hevyProposalConfirmCreated;
+    const proposal = currentHevyProposals.get(key);
+    if (!proposal) return;
+    confirmCreatedButton.disabled = true;
+    confirmCreatedButton.textContent = "Bekrefter …";
+    try {
+      if (!Number.isInteger(proposal.id)) {
+        removeHevyProposalCard(key);
+        showToast("Malen er markert som opprettet i previewet.");
+        return;
+      }
+      const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/confirm-created`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Kunne ikke bekrefte Hevy-malen.");
+      }
+      removeHevyProposalCard(key);
+      showToast("Malen er markert som opprettet i Hevy.");
+    } catch (error) {
+      confirmCreatedButton.disabled = false;
+      confirmCreatedButton.textContent = "Malen finnes i Hevy";
+      showToast(error?.message || "Kunne ikke bekrefte Hevy-malen.");
     }
     return;
   }
@@ -2158,13 +2236,14 @@ hevyRoutineProposals?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const key = form.dataset.hevyProposalFeedbackForm;
   const proposal = currentHevyProposals.get(key);
-  const input = form.querySelector("input");
+  const input = form.querySelector("textarea");
   const submit = form.querySelector("button[type=submit]");
   const question = input?.value.trim();
   if (!proposal || !question || !submit) return;
 
   submit.disabled = true;
   submit.textContent = "Tenker …";
+  setChatFieldBusy(input, true);
   try {
     let payload;
     if (!Number.isInteger(proposal.id)) {
@@ -2192,7 +2271,7 @@ hevyRoutineProposals?.addEventListener("submit", async (event) => {
     if (payload.replacement) replaceHevyProposalCard(key, payload.replacement);
     renderHevyProposalFeedback(key, payload.answer, payload.model);
     if (payload.replacement) showToast("Forslaget er oppdatert. Det er fortsatt ikke opprettet i Hevy.");
-    input.value = "";
+    clearChatField(input);
   } catch (error) {
     showToast(error?.message || "Coachen kunne ikke oppdatere malen. Ingenting er endret.");
   } finally {
@@ -2200,6 +2279,7 @@ hevyRoutineProposals?.addEventListener("submit", async (event) => {
       submit.disabled = false;
       submit.textContent = "Send";
     }
+    if (input?.isConnected) setChatFieldBusy(input, false);
   }
 });
 
@@ -2215,6 +2295,7 @@ blockChatForm?.addEventListener("submit", async (event) => {
     blockChatButton.disabled = true;
     blockChatButton.textContent = "Tenker …";
   }
+  setChatFieldBusy(blockChatMessage, true);
   clearBlockProposal();
   try {
     const response = await fetch("/api/blocks/coach", {
@@ -2236,7 +2317,7 @@ blockChatForm?.addEventListener("submit", async (event) => {
       renderBlockConversation(blockCoachHistory);
     }
     if (payload.proposal) renderBlockProposal(payload.proposal);
-    if (blockChatMessage) blockChatMessage.value = "";
+    clearChatField(blockChatMessage);
   } catch {
     if (window.location.protocol !== "file:") {
       showToast("Coachen svarte ikke. Blokken er ikke endret.");
@@ -2250,12 +2331,13 @@ blockChatForm?.addEventListener("submit", async (event) => {
     blockConversationExpanded = false;
     renderBlockConversation(blockCoachHistory);
     if (preview.proposal) renderBlockProposal({ id: null, proposal: preview.proposal, status: "pending" });
-    if (blockChatMessage) blockChatMessage.value = "";
+    clearChatField(blockChatMessage);
   } finally {
     if (blockChatButton) {
       blockChatButton.disabled = false;
       blockChatButton.textContent = "Send";
     }
+    setChatFieldBusy(blockChatMessage, false);
   }
 });
 

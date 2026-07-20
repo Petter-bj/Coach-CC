@@ -143,6 +143,46 @@ def test_create_routine_resolves_templates_then_posts_exact_payload(
     }
 
 
+def test_create_routine_recovers_when_hevy_omits_id_from_success_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """En vellykket POST uten JSON-ID må ikke gjøre at brukeren dobbeltsender."""
+    monkeypatch.setenv("HEVY_API_KEY", "fake-test-key")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            assert request.url.path == "/v1/routines"
+            return httpx.Response(201, json={})
+        if request.url.path == "/v1/exercise_templates":
+            return httpx.Response(200, json={
+                "exercise_templates": [{"id": "squat-id", "title": "Barbell Squat"}],
+                "page_count": 1,
+            })
+        assert request.url.path == "/v1/routines"
+        return httpx.Response(200, json={
+            "routines": [{
+                "id": "routine-just-created",
+                "title": "Fullkropp A",
+                "exercises": [{"exercise_template_id": "squat-id"}],
+            }],
+            "page_count": 1,
+        })
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        routine_id = create_routine({
+            "title": "Fullkropp A",
+            "exercises": [{
+                "exercise": "Barbell Squat",
+                "sets": [{"type": "normal", "reps": 6}],
+            }],
+        }, http_client=client)
+    finally:
+        client.close()
+
+    assert routine_id == "routine-just-created"
+
+
 def test_create_routine_explains_when_an_exercise_cannot_be_matched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
