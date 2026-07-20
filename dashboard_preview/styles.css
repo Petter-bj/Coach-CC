@@ -135,6 +135,16 @@ button, input { font: inherit; } button { cursor: pointer; }
 .coach-reply { max-width: 1060px; margin: 16px 0 0 112px; padding: 19px 24px 18px; border: 1px solid #f0dbe4; border-radius: 18px; background: rgba(255,255,255,.64); }
 .coach-reply > p:not(.eyebrow) { margin: 8px 0 9px; color: var(--muted); font-size: 16px; line-height: 1.52; white-space: pre-wrap; }
 .coach-reply small { color: var(--faint); font-size: 12px; }
+.coach-conversation { display: grid; gap: 10px; max-width: 1060px; margin: 16px 0 0 112px; }
+.week-conversation { max-width: none; margin-left: 0; }
+.coach-conversation-message { max-width: min(820px, 88%); padding: 15px 17px; border: 1px solid #f0dbe4; border-radius: 18px; background: var(--pink-faint); }
+.coach-conversation-message.user { justify-self: end; border-color: var(--line); background: #fff; }
+.coach-conversation-message.assistant { justify-self: start; }
+.coach-conversation-message .eyebrow { margin: 0; }
+.coach-conversation-message > p:not(.eyebrow) { margin: 7px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+.coach-conversation-message small { display: block; margin-top: 9px; color: var(--faint); font-size: 11px; }
+.coach-conversation-toggle { justify-self: start; padding: 0; border: 0; color: var(--pink); background: transparent; font: inherit; font-size: 12px; font-weight: 750; }
+.coach-conversation-toggle:hover { text-decoration: underline; }
 
 /* Helseendringer er alltid brukeroppgitte forslag. Gult betyr at coachen
    venter på et bevisst valg, ikke at noe allerede er skrevet til profilen. */
@@ -152,6 +162,11 @@ button, input { font: inherit; } button { cursor: pointer; }
   .coach-reply { margin: 11px 0 0; padding: 14px 15px; border-radius: 15px; }
   .coach-reply > p:not(.eyebrow) { margin: 6px 0 7px; font-size: 12px; line-height: 1.48; }
   .coach-reply small { font-size: 10px; }
+  .coach-conversation { gap: 8px; margin: 11px 0 0; }
+  .coach-conversation-message { max-width: 94%; padding: 13px 14px; border-radius: 15px; }
+  .coach-conversation-message > p:not(.eyebrow) { margin-top: 6px; font-size: 12px; line-height: 1.48; }
+  .coach-conversation-message small { margin-top: 7px; font-size: 10px; }
+  .coach-conversation-toggle { font-size: 11px; }
   .injury-proposal { margin: 11px 0 0; padding: 16px; border-radius: 15px; }
   .injury-proposal-header { gap: 11px; }
   .injury-proposal-header h3 { margin: 6px 0 4px; font-size: 17px; }

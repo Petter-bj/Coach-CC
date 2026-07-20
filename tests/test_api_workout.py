@@ -70,3 +70,35 @@ def test_hevy_workout_detail_includes_grouped_exercises_and_sets() -> None:
             },
         ],
     }
+
+
+def test_garmin_running_cadence_is_displayed_for_both_feet() -> None:
+    """Garmin FIT cadence is single-foot rate; dashboard shows total spm."""
+    conn = sqlite3.connect(":memory:")
+    configure(conn)
+    migrate(conn)
+    try:
+        workout_id = conn.execute(
+            """
+            INSERT INTO workouts (
+                source, external_id, started_at_utc, timezone, local_date,
+                type, duration_sec
+            ) VALUES ('garmin', 'garmin-running-123', '2026-07-20T09:00:00Z',
+                      'Europe/Oslo', '2026-07-20', 'treadmill_running', 3000)
+            """
+        ).lastrowid
+        conn.executemany(
+            """
+            INSERT INTO workout_samples (workout_id, t_offset_sec, cadence)
+            VALUES (?, ?, ?)
+            """,
+            [(workout_id, 0, 76), (workout_id, 1, 77)],
+        )
+        conn.commit()
+
+        detail = build_workout_detail(conn, workout_id)
+    finally:
+        conn.close()
+
+    assert detail is not None
+    assert detail["sample_summary"]["avg_cadence"] == 153.0

@@ -5,6 +5,7 @@ const chatMessage = document.querySelector("#chat-message");
 const chatButton = chatForm.querySelector("button");
 const coachReply = document.querySelector("#coach-reply");
 const coachAnswer = document.querySelector("[data-coach-answer]");
+const coachConversation = document.querySelector("[data-coach-conversation]");
 const injuryProposal = document.querySelector("[data-injury-proposal]");
 const injuryProposalTitle = document.querySelector("[data-injury-proposal-title]");
 const injuryProposalDetail = document.querySelector("[data-injury-proposal-detail]");
@@ -28,6 +29,7 @@ const weekChatMessage = document.querySelector("#week-chat-message");
 const weekChatButton = weekChatForm?.querySelector("button");
 const weekCoachReply = document.querySelector("[data-week-coach-reply]");
 const weekCoachAnswer = document.querySelector("[data-week-coach-answer]");
+const weekConversation = document.querySelector("[data-week-conversation]");
 const weekProposal = document.querySelector("[data-week-proposal]");
 const weekProposalOperations = document.querySelector("[data-week-proposal-operations]");
 const hevyRoutineProposals = document.querySelector("[data-hevy-routine-proposals]");
@@ -57,6 +59,10 @@ const coachHistory = [];
 const weekCoachHistory = [];
 const blockCoachHistory = [];
 let blockConversationExpanded = false;
+let coachConversationExpanded = false;
+let weekConversationExpanded = false;
+let loadedTodayConversationDay;
+let loadedWeekConversationStart;
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 1 });
 const weekdays = ["MAN", "TIR", "ONS", "TOR", "FRE", "LØR", "SØN"];
@@ -1021,6 +1027,84 @@ function renderBlockConversation(messages = []) {
   if (blockCoachReply) blockCoachReply.hidden = true;
 }
 
+function renderCompactConversation(container, messages, options = {}) {
+  if (!container) return;
+  const visibleMessages = messages.filter((message) => (
+    message?.role === "user" || message?.role === "assistant"
+  ) && typeof message.content === "string" && message.content.trim());
+  const {
+    expanded = false,
+    onToggle,
+    history,
+    fallbackReply,
+  } = options;
+  if (history) {
+    history.splice(0, history.length, ...visibleMessages.map(({ role, content }) => ({ role, content })));
+  }
+  container.replaceChildren();
+  if (!visibleMessages.length) {
+    container.hidden = true;
+    return;
+  }
+
+  const latestCoachMessage = [...visibleMessages].reverse().find((message) => message.role === "assistant")
+    || visibleMessages.at(-1);
+  const displayedMessages = expanded ? visibleMessages : [latestCoachMessage];
+  displayedMessages.forEach((message) => {
+    const card = document.createElement("article");
+    card.className = `coach-conversation-message ${message.role}`;
+    const label = document.createElement("p");
+    label.className = "eyebrow";
+    label.textContent = message.role === "user" ? "DU" : "COACH";
+    const copy = document.createElement("p");
+    copy.textContent = message.content;
+    card.append(label, copy);
+    if (message.role === "assistant" && message.model) {
+      const model = document.createElement("small");
+      model.textContent = message.model;
+      card.append(model);
+    }
+    container.append(card);
+  });
+  if (visibleMessages.length > 1) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "coach-conversation-toggle";
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.textContent = expanded
+      ? "Vis bare siste svar"
+      : `Vis hele samtalen · ${visibleMessages.length} meldinger`;
+    toggle.addEventListener("click", () => onToggle?.(!expanded));
+    container.append(toggle);
+  }
+  container.hidden = false;
+  if (fallbackReply) fallbackReply.hidden = true;
+}
+
+function renderCoachConversation(messages = []) {
+  renderCompactConversation(coachConversation, messages, {
+    expanded: coachConversationExpanded,
+    history: coachHistory,
+    fallbackReply: coachReply,
+    onToggle: (expanded) => {
+      coachConversationExpanded = expanded;
+      renderCoachConversation(messages);
+    },
+  });
+}
+
+function renderWeekConversation(messages = []) {
+  renderCompactConversation(weekConversation, messages, {
+    expanded: weekConversationExpanded,
+    history: weekCoachHistory,
+    fallbackReply: weekCoachReply,
+    onToggle: (expanded) => {
+      weekConversationExpanded = expanded;
+      renderWeekConversation(messages);
+    },
+  });
+}
+
 function blockPayloadFromProposal(candidate) {
   return {
     block: {
@@ -1079,6 +1163,10 @@ function previewBlockCoachReply(question) {
 
 function renderWeekPage(week) {
   if (!weekCalendar || !week) return;
+  if (loadedWeekConversationStart !== week.start) {
+    loadedWeekConversationStart = week.start;
+    weekConversationExpanded = false;
+  }
   displayedWeekStart = week.start;
   setText("[data-week-page-title]", `Uke ${isoWeekNumber(week.start)}`);
   setText("[data-week-page-range]", formatWeekRange(week.start, week.end));
@@ -1119,8 +1207,18 @@ function renderWeekPage(week) {
     const state = document.createElement("i");
     state.textContent = calendarDayIcon(day.status);
     item.append(date, title, state);
+    const planned = day.planned_sessions || [];
+    if (planned.length === 1) {
+      item.title = "Åpne øktplan";
+      item.setAttribute("aria-label", `${date.textContent}: ${title.textContent}. Åpne øktplan.`);
+      item.addEventListener("click", () => plannedWorkoutDetail(planned[0]));
+    } else {
+      item.title = "Åpne dagslogg";
+      item.addEventListener("click", () => loadDayLog(day.date));
+    }
     weekCalendar.append(item);
   });
+  void loadWeekConversation(week.start);
 }
 
 function renderWeekBlockContext(block, week) {
@@ -1156,13 +1254,19 @@ function setLogSection(selector, label, lines) {
   eyebrow.className = "eyebrow";
   eyebrow.textContent = label;
   section.append(eyebrow);
-  lines.forEach(({ title, detail, workoutId }) => {
-    const entry = document.createElement(workoutId == null ? "div" : "button");
+  lines.forEach(({ title, detail, workoutId, onClick }) => {
+    const entry = document.createElement(workoutId == null && !onClick ? "div" : "button");
     entry.className = "day-log-workout";
     if (workoutId != null) {
       entry.type = "button";
       entry.classList.add("day-log-workout-button");
       entry.dataset.workoutId = workoutId;
+    }
+    if (onClick) {
+      entry.type = "button";
+      entry.classList.add("day-log-workout-button");
+      entry.title = "Åpne øktplan";
+      entry.addEventListener("click", onClick);
     }
     const heading = document.createElement("strong");
     heading.textContent = title;
@@ -1208,7 +1312,8 @@ function renderDayLog(log) {
     plans.length
       ? plans.map((plan) => ({
         title: plan.description || sessionTitle(plan),
-        detail: plan.status === "completed" ? "Gjennomført" : plan.status === "planned" ? "Planlagt" : "Hvile eller endret",
+        detail: `${plan.status === "completed" ? "Gjennomført" : plan.status === "planned" ? "Planlagt" : "Hvile eller endret"} · åpne øktplan`,
+        onClick: () => plannedWorkoutDetail(plan),
       }))
       : [{ title: "Ingen plan", detail: "Dagen er ikke lagt inn i en treningsplan." }],
   );
@@ -1289,6 +1394,24 @@ async function loadWeek(start) {
     // Det lokale previewet må også kunne bla frem og tilbake, selv om det
     // ikke finnes et API under file://.
     renderWeekPage(previewWeek(target));
+  }
+}
+
+async function loadWeekConversation(weekStart) {
+  if (!weekStart) return;
+  if (window.location.protocol === "file:") {
+    if (weekCoachHistory.length) renderWeekConversation(weekCoachHistory);
+    return;
+  }
+  try {
+    const response = await fetch(`/api/weeks/${encodeURIComponent(weekStart)}/coach/history`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("week conversation unavailable");
+    const payload = await response.json();
+    renderWeekConversation(payload.messages || []);
+  } catch {
+    // Behold den sist synlige samtalen hvis forbindelsen er borte et øyeblikk.
   }
 }
 
@@ -1422,9 +1545,33 @@ async function loadToday() {
   try {
     const response = await fetch("/api/today", { headers: { Accept: "application/json" } });
     if (!response.ok) return;
-    hydrateDashboard(await response.json());
+    const payload = await response.json();
+    if (loadedTodayConversationDay !== payload.date) {
+      loadedTodayConversationDay = payload.date;
+      coachConversationExpanded = false;
+    }
+    hydrateDashboard(payload);
+    void loadTodayConversation(payload.date);
   } catch {
     // Local preview has no API. It deliberately continues with representative data.
+  }
+}
+
+async function loadTodayConversation(day) {
+  if (!day) return;
+  if (window.location.protocol === "file:") {
+    if (coachHistory.length) renderCoachConversation(coachHistory);
+    return;
+  }
+  try {
+    const response = await fetch(`/api/coach/history?day=${encodeURIComponent(day)}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("today conversation unavailable");
+    const payload = await response.json();
+    renderCoachConversation(payload.messages || []);
+  } catch {
+    // Ikke rydd bort en lokal samtale bare fordi en request feiler.
   }
 }
 
@@ -1808,11 +1955,6 @@ navButtons.forEach((button) => {
   });
 });
 
-weekCalendar?.addEventListener("click", (event) => {
-  const day = event.target.closest("[data-day]");
-  if (day?.dataset.day) loadDayLog(day.dataset.day);
-});
-
 document.querySelectorAll("[data-week-nav]").forEach((button) => {
   button.addEventListener("click", () => {
     const base = displayedWeekStart || currentToday?.date || isoDate(new Date());
@@ -1894,13 +2036,12 @@ chatForm.addEventListener("submit", async (event) => {
     const payload = await response.json();
     if (!payload.answer) throw new Error("coach answer missing");
 
-    coachAnswer.textContent = payload.answer;
-    coachReply.hidden = false;
-    coachHistory.push(
+    coachConversationExpanded = false;
+    renderCoachConversation(payload.messages || [
+      ...coachHistory,
       { role: "user", content: question },
-      { role: "assistant", content: payload.answer },
-    );
-    if (coachHistory.length > 8) coachHistory.splice(0, coachHistory.length - 8);
+      { role: "assistant", content: payload.answer, model: payload.model },
+    ]);
     if (payload.injury_proposal) renderInjuryProposal(payload.injury_proposal);
     clearChatField(chatMessage);
   } catch {
@@ -1909,8 +2050,12 @@ chatForm.addEventListener("submit", async (event) => {
       showToast("Coachen svarte ikke. Prøv igjen om litt.");
       return;
     }
-    coachAnswer.textContent = preview.answer;
-    coachReply.hidden = false;
+    coachConversationExpanded = false;
+    renderCoachConversation([
+      ...coachHistory,
+      { role: "user", content: question },
+      { role: "assistant", content: preview.answer, model: preview.model },
+    ]);
     if (preview.injury_proposal) renderInjuryProposal(preview.injury_proposal);
     clearChatField(chatMessage);
   } finally {
@@ -2044,11 +2189,12 @@ weekChatForm?.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error("week coach unavailable");
     const payload = await response.json();
     if (!payload.answer) throw new Error("week coach answer missing");
-    weekCoachAnswer.textContent = payload.answer;
-    if (weekCoachReply) weekCoachReply.hidden = false;
-    setText("[data-week-coach-model]", `${payload.model || "V4-Pro"} · Ingen endring er gjort`);
-    weekCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
-    if (weekCoachHistory.length > 8) weekCoachHistory.splice(0, weekCoachHistory.length - 8);
+    weekConversationExpanded = false;
+    renderWeekConversation(payload.messages || [
+      ...weekCoachHistory,
+      { role: "user", content: question },
+      { role: "assistant", content: payload.answer, model: payload.model },
+    ]);
     if (payload.proposal) renderWeekProposal(payload.proposal);
     if (payload.injury_proposal) renderWeekInjuryProposal(payload.injury_proposal);
     // Ny liste-form med bakoverkompatibelt enkelt-felt.
@@ -2057,9 +2203,12 @@ weekChatForm?.addEventListener("submit", async (event) => {
     clearChatField(weekChatMessage);
   } catch {
     const preview = previewWeekCoachReply(question);
-    weekCoachAnswer.textContent = preview.answer;
-    if (weekCoachReply) weekCoachReply.hidden = false;
-    setText("[data-week-coach-model]", `${preview.model} · Ingen endring er gjort`);
+    weekConversationExpanded = false;
+    renderWeekConversation([
+      ...weekCoachHistory,
+      { role: "user", content: question },
+      { role: "assistant", content: preview.answer, model: preview.model },
+    ]);
     if (preview.operations.length) renderWeekProposal({ id: null, operations: preview.operations, status: "pending" });
     if (preview.injury_proposal) renderWeekInjuryProposal(preview.injury_proposal);
     const previewProposals = preview.hevy_proposals || (preview.hevy_proposal ? [preview.hevy_proposal] : []);

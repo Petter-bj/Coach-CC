@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from typing import Any
 
 
 BLOCK_THREAD = "block:planning"
 MAX_STORED_MESSAGES = 32
 MODEL_CONTEXT_MESSAGES = 12
+
+
+def today_thread(day: date) -> str:
+    """Én kort samtale om den konkrete dagen – ikke gårsdagens råd."""
+    return f"today:{day.isoformat()}"
+
+
+def week_thread(week_start: date) -> str:
+    """Hold ukescoachen adskilt når brukeren blar mellom uker."""
+    return f"week:{week_start.isoformat()}"
 
 
 def conversation_history(

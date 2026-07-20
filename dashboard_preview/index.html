@@ -57,11 +57,7 @@
               <span><i class="green"></i>HRV <strong data-signal="hrv">73 ms · høy</strong></span>
               <span><i class="pink-dot"></i>Søvn <strong data-signal="sleep">7 t 48 m · 90 %</strong></span>
             </div>
-            <form class="chat-input" id="chat-form">
-              <label class="sr-only" for="chat-message">Spør eller juster økten</label>
-              <textarea id="chat-message" rows="1" autocomplete="off" data-auto-expand placeholder="Spør eller juster økta — f.eks. «kutt to drag, låret er stivt»"></textarea>
-              <button type="submit">Send</button>
-            </form>
+            <section class="coach-conversation" data-coach-conversation hidden aria-label="Samtale med dagens coach" aria-live="polite"></section>
             <div class="coach-reply" id="coach-reply" role="status" aria-live="polite" hidden>
               <p class="eyebrow pink">COACH</p>
               <p data-coach-answer></p>
@@ -72,6 +68,11 @@
               <p class="injury-proposal-note" data-injury-proposal-note></p>
               <div class="injury-proposal-actions"><button type="button" class="secondary-action" data-injury-proposal-discard>Forkast</button><button type="button" class="primary-action" data-injury-proposal-apply>Bekreft oppdatering</button></div>
             </section>
+            <form class="chat-input" id="chat-form">
+              <label class="sr-only" for="chat-message">Spør eller juster økten</label>
+              <textarea id="chat-message" rows="1" autocomplete="off" data-auto-expand placeholder="Spør eller juster økta — f.eks. «kutt to drag, låret er stivt»"></textarea>
+              <button type="submit">Send</button>
+            </form>
           </article>
 
           <article class="card review-card" id="review-card" aria-labelledby="review-title">
@@ -217,11 +218,7 @@
               </div>
               <span class="week-coach-scope" data-week-coach-scope>Uke 29</span>
             </div>
-            <form class="week-chat-input" id="week-chat-form">
-              <label class="sr-only" for="week-chat-message">Spør coachen om denne uken</label>
-              <textarea id="week-chat-message" rows="1" autocomplete="off" data-auto-expand placeholder="F.eks. «lag en Hevy-mal for fullkropp tirsdag og fredag»"></textarea>
-              <button type="submit">Send</button>
-            </form>
+            <section class="coach-conversation week-conversation" data-week-conversation hidden aria-label="Samtale med ukens coach" aria-live="polite"></section>
             <section class="week-coach-reply" data-week-coach-reply hidden aria-live="polite">
               <p class="eyebrow pink">COACH</p>
               <p data-week-coach-answer></p>
@@ -238,6 +235,11 @@
               <div class="week-proposal-actions"><button type="button" class="secondary-action" data-week-proposal-discard>Forkast</button><button type="button" class="primary-action" data-week-proposal-apply>Bruk forslaget</button></div>
             </section>
             <div class="hevy-routine-proposals" data-hevy-routine-proposals hidden aria-live="polite"></div>
+            <form class="week-chat-input" id="week-chat-form">
+              <label class="sr-only" for="week-chat-message">Spør coachen om denne uken</label>
+              <textarea id="week-chat-message" rows="1" autocomplete="off" data-auto-expand placeholder="F.eks. «lag en Hevy-mal for fullkropp tirsdag og fredag»"></textarea>
+              <button type="submit">Send</button>
+            </form>
           </article>
 
           <article class="card day-log-card" data-day-log hidden aria-live="polite">

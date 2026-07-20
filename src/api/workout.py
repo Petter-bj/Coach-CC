@@ -33,6 +33,24 @@ def _hevy_session_name(notes: str | None) -> str | None:
     return notes.removeprefix("Økt: ").split(" — ", 1)[0].strip() or None
 
 
+def _display_cadence(
+    raw_cadence: float | None, *, source: str, workout_type: str,
+) -> float | None:
+    """Normaliser Garmin-løpekadens til steg per minutt for begge bein.
+
+    FIT-data fra Garmin lagres som single-foot cadence for løping. Det er
+    verdien Garmin bruker internt (ofte rundt 70–95), mens dashboardet og
+    coachingreglene skal vise total kadens (typisk 140–190 spm). Concept2-
+    stroke rate og sykkelkadens er allerede fulle runder og skal stå urørt.
+    """
+    if raw_cadence is None:
+        return None
+    cadence = float(raw_cadence)
+    if source == "garmin" and "running" in workout_type.lower() and 0 < cadence < 110:
+        cadence *= 2
+    return round(cadence, 1)
+
+
 def build_workout_detail(
     conn: sqlite3.Connection, workout_id: int,
 ) -> dict[str, Any] | None:
@@ -110,6 +128,14 @@ def build_workout_detail(
             "notes": strength_set["notes"],
         })
 
+    sample_summary_data = dict(sample_summary) if sample_summary else None
+    if sample_summary_data is not None:
+        sample_summary_data["avg_cadence"] = _display_cadence(
+            sample_summary_data["avg_cadence"],
+            source=row["source"],
+            workout_type=row["type"],
+        )
+
     return {
         "workout": {
             "id": row["id"],
@@ -137,7 +163,7 @@ def build_workout_detail(
             "avg_stroke_rate": row["avg_stroke_rate"],
             "workout_type": row["workout_type"],
         },
-        "sample_summary": dict(sample_summary) if sample_summary else None,
+        "sample_summary": sample_summary_data,
         "matched_plan": (
             {
                 "id": plan["id"],

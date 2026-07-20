@@ -19,6 +19,8 @@ from src.api.conversations import (
     append_exchange,
     client_history,
     conversation_history,
+    today_thread,
+    week_thread,
 )
 from src.api.hevy_routines import (
     create_hevy_routine_proposal,
@@ -254,16 +256,26 @@ def create_app(
                                 detail="Workout was not found")
         return detail
 
+    @app.get("/api/coach/history", dependencies=[Depends(auth)])
+    def coach_history(day: date | None = None) -> dict[str, Any]:
+        target_day = day or date.today()
+        with connect(db_path) as conn:
+            messages = conversation_history(conn, thread=today_thread(target_day))
+        return {"messages": messages}
+
     @app.post("/api/coach/chat", dependencies=[Depends(auth)])
     def coach_chat(message: CoachMessage) -> dict[str, Any]:
         question = message.message.strip()
         if not question:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail="Message cannot be blank")
+        target_day = date.today()
         with connect(db_path) as conn:
-            context = build_coach_context(conn, question=question)
-        if message.history:
-            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+            context = build_coach_context(conn, target_day, question=question)
+            stored_history = conversation_history(conn, thread=today_thread(target_day))
+        prior_history = client_history(stored_history) or [turn.model_dump() for turn in message.history]
+        if prior_history:
+            context["conversation_history"] = prior_history
         try:
             reply = responder(question, context)
         except CoachUnavailableError as exc:
@@ -282,14 +294,21 @@ def create_app(
             reported_on=date.fromisoformat(context["date"]),
         )
         injury_proposal = None
-        if injury is not None:
-            with connect(db_path) as conn:
+        with connect(db_path) as conn:
+            if injury is not None:
                 injury_proposal = create_injury_proposal(
                     conn,
                     question=question,
                     coach_answer=reply.answer,
                     proposal=injury,
                 )
+            history = append_exchange(
+                conn,
+                thread=today_thread(target_day),
+                question=question,
+                answer=reply.answer,
+                model=reply.model,
+            )
         return {
             "answer": reply.answer,
             "model": reply.model,
@@ -297,6 +316,7 @@ def create_app(
             # plan og Hevy. En modellrespons alene endrer aldri databasen.
             "changes_applied": False,
             "injury_proposal": injury_proposal,
+            "messages": history,
         }
 
     @app.post("/api/injury-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
@@ -321,6 +341,12 @@ def create_app(
             )
         return {"id": proposal_id, "status": "discarded"}
 
+    @app.get("/api/weeks/{week_start}/coach/history", dependencies=[Depends(auth)])
+    def week_coach_history(week_start: date) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            messages = conversation_history(conn, thread=week_thread(week_start))
+        return {"messages": messages}
+
     @app.post("/api/weeks/{week_start}/coach", dependencies=[Depends(auth)])
     def week_coach_chat(week_start: date, message: CoachMessage) -> dict[str, Any]:
         """Svar om én uke og eventuelt lagre en *uapplisert* endringsdiff."""
@@ -330,8 +356,10 @@ def create_app(
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
             context = build_week_coach_context(conn, week_start, question=question)
-        if message.history:
-            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+            stored_history = conversation_history(conn, thread=week_thread(week_start))
+        prior_history = client_history(stored_history) or [turn.model_dump() for turn in message.history]
+        if prior_history:
+            context["conversation_history"] = prior_history
         try:
             reply = week_responder(question, context)
         except CoachUnavailableError as exc:
@@ -361,8 +389,8 @@ def create_app(
         proposal = None
         hevy_proposals: list[dict[str, Any]] = []
         injury_proposal = None
-        if operations or routines or injury is not None:
-            with connect(db_path) as conn:
+        with connect(db_path) as conn:
+            if operations or routines or injury is not None:
                 if operations:
                     proposal = create_proposal(
                         conn,
@@ -388,6 +416,13 @@ def create_app(
                         coach_answer=reply.answer,
                         proposal=injury,
                     )
+            history = append_exchange(
+                conn,
+                thread=week_thread(week_start),
+                question=question,
+                answer=reply.answer,
+                model=reply.model,
+            )
         return {
             "answer": reply.answer,
             "model": reply.model,
@@ -397,6 +432,7 @@ def create_app(
             # Bakoverkompatibelt enkelt-felt: første forslag eller null.
             "hevy_proposal": hevy_proposals[0] if hevy_proposals else None,
             "injury_proposal": injury_proposal,
+            "messages": history,
         }
 
     @app.post("/api/week-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])

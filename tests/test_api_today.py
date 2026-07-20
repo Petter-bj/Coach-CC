@@ -461,6 +461,14 @@ def test_coach_chat_is_private_read_only_and_receives_curated_context(tmp_path) 
         "model": "deepseek-v4-pro",
         "changes_applied": False,
         "injury_proposal": None,
+        "messages": [
+            {"role": "user", "content": "Bør jeg løpe?"},
+            {
+                "role": "assistant",
+                "content": "Forslag: hold økta rolig. Planen er ikke endret.",
+                "model": "deepseek-v4-pro",
+            },
+        ],
     }
     assert seen["question"] == "Bør jeg løpe?"
     assert seen["context"]["conversation_history"] == [

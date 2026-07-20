@@ -12,6 +12,9 @@ Environment=PYTHONPATH=/opt/trening/app
 Environment=TRENING_DATA_DIR=/var/lib/trening
 Environment=TRENING_LOG_DIR=/var/log/trening
 Environment=TRENING_CACHE_DIR=/var/cache/trening
+# Hevy brukes både av dashboardets opprettelsesflyt og av sync-jobben som
+# henter ferdigloggede styrkeøkter tilbake. Begge må få samme nøkkel.
+EnvironmentFile=-/var/lib/trening/credentials/hevy.env
 ExecStart=/opt/trening/app/.venv/bin/python -m src.sync
 StateDirectory=trening
 LogsDirectory=trening
