@@ -20,6 +20,19 @@ from src.api.conversations import (
     client_history,
     conversation_history,
 )
+from src.api.hevy_routines import (
+    create_hevy_routine_proposal,
+    discard_hevy_routine_proposal,
+    mark_hevy_routine_proposal_applied,
+    pending_hevy_routine_proposal,
+    validate_hevy_routine,
+)
+from src.api.injury_proposals import (
+    apply_injury_proposal,
+    create_injury_proposal,
+    discard_injury_proposal,
+    validate_injury_proposal,
+)
 from src.api.blocks import build_block_payload
 from src.api.block_planning import (
     apply_block_proposal,
@@ -56,6 +69,7 @@ from src.coaching.deepseek import (
 from src.coaching.reviews import ensure_pending_reviews
 from src.db.connection import connect
 from src.db.migrations import migrate
+from src.integrations.hevy import HevyRoutineError, create_routine
 
 
 def _require_dashboard_access(expected_token: str | None):
@@ -108,6 +122,7 @@ class CoachMessage(BaseModel):
 CoachResponder = Callable[[str, dict[str, Any]], CoachReply]
 WeeklyCoachResponder = Callable[[str, dict[str, Any]], WeeklyCoachReply]
 BlockCoachResponder = Callable[[str, dict[str, Any]], BlockCoachReply]
+HevyRoutineCreator = Callable[[dict[str, Any]], str]
 
 
 def create_app(
@@ -117,6 +132,7 @@ def create_app(
     coach_responder: CoachResponder | None = None,
     weekly_coach_responder: WeeklyCoachResponder | None = None,
     block_coach_responder: BlockCoachResponder | None = None,
+    hevy_routine_creator: HevyRoutineCreator | None = None,
 ) -> FastAPI:
     """Lag dashboardet og dets private API med eksplisitte bekreftelsesflyter."""
     token = api_token if api_token is not None else os.getenv("TRENING_API_TOKEN")
@@ -124,6 +140,7 @@ def create_app(
     responder = coach_responder or ask_deepseek_coach
     week_responder = weekly_coach_responder or ask_deepseek_week_coach
     block_responder = block_coach_responder or ask_deepseek_block_coach
+    routine_creator = hevy_routine_creator or create_routine
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -238,7 +255,7 @@ def create_app(
         return detail
 
     @app.post("/api/coach/chat", dependencies=[Depends(auth)])
-    def coach_chat(message: CoachMessage) -> dict[str, str | bool]:
+    def coach_chat(message: CoachMessage) -> dict[str, Any]:
         question = message.message.strip()
         if not question:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -259,12 +276,50 @@ def create_app(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Coachen er midlertidig utilgjengelig. Prøv igjen.",
             ) from exc
+        injury = validate_injury_proposal(
+            reply.injury_proposal,
+            active_injuries=context.get("active_injuries", []),
+            reported_on=date.fromisoformat(context["date"]),
+        )
+        injury_proposal = None
+        if injury is not None:
+            with connect(db_path) as conn:
+                injury_proposal = create_injury_proposal(
+                    conn,
+                    question=question,
+                    coach_answer=reply.answer,
+                    proposal=injury,
+                )
         return {
             "answer": reply.answer,
             "model": reply.model,
-            # Gjør kontrakten eksplisitt: denne første sløyfen kan bare lese.
+            # Helsekontekst følger samme synlige forslag → bekreft-flyt som
+            # plan og Hevy. En modellrespons alene endrer aldri databasen.
             "changes_applied": False,
+            "injury_proposal": injury_proposal,
         }
+
+    @app.post("/api/injury-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
+    def apply_saved_injury_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            proposal = apply_injury_proposal(conn, proposal_id)
+        if proposal is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Skadeforslaget finnes ikke eller er allerede håndtert",
+            )
+        return proposal
+
+    @app.post("/api/injury-proposals/{proposal_id}/discard", dependencies=[Depends(auth)])
+    def discard_saved_injury_proposal(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            discarded = discard_injury_proposal(conn, proposal_id)
+        if not discarded:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Skadeforslaget finnes ikke eller er allerede håndtert",
+            )
+        return {"id": proposal_id, "status": "discarded"}
 
     @app.post("/api/weeks/{week_start}/coach", dependencies=[Depends(auth)])
     def week_coach_chat(week_start: date, message: CoachMessage) -> dict[str, Any]:
@@ -292,20 +347,32 @@ def create_app(
 
         operations = validate_operations(reply.operations, week_context=context)
         proposal = None
-        if operations:
+        hevy_proposal = None
+        routine = validate_hevy_routine(reply.hevy_routine)
+        if operations or routine:
             with connect(db_path) as conn:
-                proposal = create_proposal(
-                    conn,
-                    week_start=context["scope"]["week_start"],
-                    question=question,
-                    coach_answer=reply.answer,
-                    operations=operations,
-                )
+                if operations:
+                    proposal = create_proposal(
+                        conn,
+                        week_start=context["scope"]["week_start"],
+                        question=question,
+                        coach_answer=reply.answer,
+                        operations=operations,
+                    )
+                if routine:
+                    hevy_proposal = create_hevy_routine_proposal(
+                        conn,
+                        week_start=context["scope"]["week_start"],
+                        question=question,
+                        coach_answer=reply.answer,
+                        routine=routine,
+                    )
         return {
             "answer": reply.answer,
             "model": reply.model,
             "changes_applied": False,
             "proposal": proposal,
+            "hevy_proposal": hevy_proposal,
         }
 
     @app.post("/api/week-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
@@ -327,6 +394,48 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Forslaget finnes ikke eller er allerede håndtert",
+            )
+        return {"id": proposal_id, "status": "discarded"}
+
+    @app.post("/api/hevy-routine-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])
+    def apply_hevy_routine_proposal(proposal_id: int) -> dict[str, Any]:
+        """Opprett kun en eksplisitt godkjent mal i Hevy."""
+        with connect(db_path) as conn:
+            proposal = pending_hevy_routine_proposal(conn, proposal_id)
+        if proposal is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Hevy-forslaget finnes ikke eller er allerede håndtert",
+            )
+        try:
+            routine_id = routine_creator(proposal["routine"])
+        except HevyRoutineError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+
+        with connect(db_path) as conn:
+            applied = mark_hevy_routine_proposal_applied(
+                conn,
+                proposal_id,
+                hevy_routine_id=routine_id,
+            )
+        if not applied:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Hevy-forslaget ble håndtert mens malen ble opprettet",
+            )
+        return {"id": proposal_id, "status": "applied", "hevy_routine_id": routine_id}
+
+    @app.post("/api/hevy-routine-proposals/{proposal_id}/discard", dependencies=[Depends(auth)])
+    def discard_hevy_routine(proposal_id: int) -> dict[str, Any]:
+        with connect(db_path) as conn:
+            discarded = discard_hevy_routine_proposal(conn, proposal_id)
+        if not discarded:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Hevy-forslaget finnes ikke eller er allerede håndtert",
             )
         return {"id": proposal_id, "status": "discarded"}
 

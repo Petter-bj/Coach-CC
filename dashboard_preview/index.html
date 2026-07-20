@@ -67,6 +67,11 @@
               <p data-coach-answer></p>
               <small>V4-Pro · Ingen endring er gjort</small>
             </div>
+            <section class="injury-proposal" data-injury-proposal hidden aria-live="polite">
+              <div class="injury-proposal-header"><div><p class="eyebrow pink">HELSEKONTEKST</p><h3 data-injury-proposal-title>Oppdater legghinneplager</h3><p data-injury-proposal-detail></p></div><span>Venter på deg</span></div>
+              <p class="injury-proposal-note" data-injury-proposal-note></p>
+              <div class="injury-proposal-actions"><button type="button" class="secondary-action" data-injury-proposal-discard>Forkast</button><button type="button" class="primary-action" data-injury-proposal-apply>Bekreft oppdatering</button></div>
+            </section>
           </article>
 
           <article class="card review-card" id="review-card" aria-labelledby="review-title">
@@ -104,7 +109,7 @@
               <div><strong data-workout-intensity>Moderat+</strong><span>INTENSITET</span></div>
             </div>
             <div class="workout-actions">
-              <span class="garmin-status">Sendt til Garmin</span>
+              <span class="garmin-status pending-target" data-workout-target>Hevy-mal via ukecoach</span>
               <button class="details-button" type="button" data-workout-detail="planned">Vis detaljer</button>
             </div>
           </article>
@@ -170,6 +175,19 @@
             </div>
           </header>
 
+          <article class="week-block-context" data-week-block-context hidden>
+            <div>
+              <p class="eyebrow pink">DENNE UKEN I BLOKKEN</p>
+              <h2 data-week-block-title>Uke 1 av 6 · Base</h2>
+              <p data-week-block-focus>Rytme og toleranse</p>
+              <small data-week-block-note></small>
+            </div>
+            <div class="week-block-actions">
+              <span data-week-block-volume>3 rolige økter</span>
+              <button type="button" data-week-plan-from-block>Planlegg denne uken <span>→</span></button>
+            </div>
+          </article>
+
           <section class="week-stat-grid" aria-label="Ukens treningssammendrag">
             <article><span>ØKTER</span><strong data-week-stat-workouts>3</strong><small data-week-stat-workouts-foot>registrert denne uken</small></article>
             <article><span>TRENINGSTID</span><strong data-week-stat-duration>2:46</strong><small>timer og minutter</small></article>
@@ -201,7 +219,7 @@
             </div>
             <form class="week-chat-input" id="week-chat-form">
               <label class="sr-only" for="week-chat-message">Spør coachen om denne uken</label>
-              <input id="week-chat-message" type="text" autocomplete="off" placeholder="F.eks. «flytt terskeløkta til torsdag, jeg reiser tirsdag»" />
+              <input id="week-chat-message" type="text" autocomplete="off" placeholder="F.eks. «lag en Hevy-mal for fullkropp tirsdag og fredag»" />
               <button type="submit">Send</button>
             </form>
             <section class="week-coach-reply" data-week-coach-reply hidden aria-live="polite">
@@ -213,6 +231,11 @@
               <div class="week-proposal-header"><div><p class="eyebrow">ENDRINGSFORSLAG</p><h3>Dette blir endret</h3></div><span>Venter på deg</span></div>
               <div class="week-proposal-operations" data-week-proposal-operations></div>
               <div class="week-proposal-actions"><button type="button" class="secondary-action" data-week-proposal-discard>Forkast</button><button type="button" class="primary-action" data-week-proposal-apply>Bruk forslaget</button></div>
+            </section>
+            <section class="hevy-routine-proposal" data-hevy-routine-proposal hidden aria-live="polite">
+              <div class="hevy-routine-header"><div><p class="eyebrow pink">HEVY-MAL</p><h3 data-hevy-routine-title>Fullkropp styrke</h3><p data-hevy-routine-notes></p></div><span>Venter på deg</span></div>
+              <div class="hevy-routine-exercises" data-hevy-routine-exercises></div>
+              <div class="week-proposal-actions"><button type="button" class="secondary-action" data-hevy-routine-discard>Forkast</button><button type="button" class="primary-action" data-hevy-routine-apply>Opprett i Hevy</button></div>
             </section>
           </article>
 

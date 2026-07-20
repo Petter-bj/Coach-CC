@@ -54,6 +54,46 @@ def _week_start(day: date) -> date:
     return day - timedelta(days=day.weekday())
 
 
+def _block_context(
+    conn: sqlite3.Connection,
+    *,
+    week_start: date,
+    week_end: date,
+) -> dict[str, Any] | None:
+    """Returner den strategiske blokken som dekker den valgte kalenderuken."""
+    row = conn.execute(
+        """
+        SELECT b.id, b.name, b.phase, b.start_date, b.end_date,
+               bw.focus, bw.progression_note, bw.planned_volume_note, bw.is_deload
+          FROM training_blocks AS b
+          LEFT JOIN training_block_weeks AS bw
+            ON bw.training_block_id = b.id
+           AND bw.week_start = ?
+         WHERE b.start_date <= ?
+           AND b.end_date >= ?
+         ORDER BY b.start_date DESC
+         LIMIT 1
+        """,
+        (week_start.isoformat(), week_end.isoformat(), week_start.isoformat()),
+    ).fetchone()
+    if row is None:
+        return None
+
+    block_start = date.fromisoformat(row["start_date"])
+    block_end = date.fromisoformat(row["end_date"])
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "phase": row["phase"],
+        "week_number": ((week_start - block_start).days // 7) + 1,
+        "total_weeks": ((block_end - block_start).days // 7) + 1,
+        "focus": row["focus"] or "Planlegg ukens konkrete økter",
+        "progression_note": row["progression_note"],
+        "planned_volume_note": row["planned_volume_note"],
+        "is_deload": bool(row["is_deload"]),
+    }
+
+
 def build_week_overview(
     conn: sqlite3.Connection,
     week_of: date | None = None,
@@ -135,6 +175,7 @@ def build_week_overview(
     return {
         "start": start,
         "end": end,
+        "block_context": _block_context(conn, week_start=week_start, week_end=week_end),
         "days": days,
         "completed_days": sum(day["status"] == "completed" for day in days),
         "training_days": sum(bool(day["workouts"]) for day in days),

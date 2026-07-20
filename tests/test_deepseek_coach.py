@@ -85,6 +85,43 @@ def test_ask_deepseek_coach_keeps_a_short_conversation_without_repeating_it_in_c
     assert "conversation_history" not in messages[3]["content"]
 
 
+def test_ask_deepseek_coach_parses_injury_candidate_without_writing() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({
+                "answer": "Jeg foreslår å sette leggen til i bedring.",
+                "injury_proposal": {
+                    "action": "update",
+                    "injury_id": 7,
+                    "severity": 1,
+                    "status": "healing",
+                    "notes": "Brukeren oppgir at smerten er borte i hverdagen.",
+                },
+            })}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        reply = ask_deepseek_coach(
+            "Kjenner ikke noe i leggen lenger.",
+            {"date": "2026-07-20", "active_injuries": [{"id": 7, "body_part": "Legg", "status": "active", "severity": 2}]},
+            api_key="test-key",
+            http_client=client,
+        )
+    finally:
+        client.close()
+
+    assert reply.answer == "Jeg foreslår å sette leggen til i bedring."
+    assert reply.injury_proposal == {
+        "action": "update",
+        "injury_id": 7,
+        "severity": 1,
+        "status": "healing",
+        "notes": "Brukeren oppgir at smerten er borte i hverdagen.",
+    }
+
+
 def test_ask_deepseek_coach_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with pytest.raises(CoachUnavailableError, match="API-nøkkel"):
@@ -115,6 +152,15 @@ def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
                     "to_date": "2026-07-23",
                     "reason": "Mer rom.",
                 }],
+                "hevy_routine": {
+                    "title": "Fullkropp A",
+                    "notes": "Kontrollert styrke.",
+                    "exercises": [{
+                        "exercise": "Barbell Squat",
+                        "rest_seconds": 120,
+                        "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
+                    }],
+                },
             })}}]},
         )
 
@@ -136,6 +182,15 @@ def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
         "to_date": "2026-07-23",
         "reason": "Mer rom.",
     }]
+    assert reply.hevy_routine == {
+        "title": "Fullkropp A",
+        "notes": "Kontrollert styrke.",
+        "exercises": [{
+            "exercise": "Barbell Squat",
+            "rest_seconds": 120,
+            "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
+        }],
+    }
 
 
 def test_block_coach_parses_a_structured_candidate_without_writing() -> None:

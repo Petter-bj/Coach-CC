@@ -14,6 +14,7 @@ Environment=TRENING_LOG_DIR=/var/log/trening
 Environment=TRENING_CACHE_DIR=/var/cache/trening
 EnvironmentFile=/var/lib/trening/credentials/api.env
 EnvironmentFile=/var/lib/trening/credentials/deepseek.env
+EnvironmentFile=-/var/lib/trening/credentials/hevy.env
 ExecStart=/opt/trening/app/.venv/bin/uvicorn src.api.app:app --host 127.0.0.1 --port 8080
 Restart=on-failure
 RestartSec=5

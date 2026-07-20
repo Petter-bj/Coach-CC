@@ -1,9 +1,9 @@
 """Smal DeepSeek-klient for den private coachen.
 
 Modulen kjenner ikke databasen og får aldri fri tilgang til filer eller shell.
-Den mottar kun en allerede kuratert kontekst fra API-laget og kan foreløpig
-bare returnere tekst. Plan- og Garmin-endringer kommer gjennom egne, eksplisitte
-forslags- og bekreftelsesflyter senere.
+Den mottar kun en allerede kuratert kontekst fra API-laget. Modellen kan returnere
+tekst og en liten, uapplisert kandidat for skadestatus; alle endringer går gjennom
+API-lagets eksplisitte forslag- og bekreftelsesflyt.
 """
 
 from __future__ import annotations
@@ -31,11 +31,29 @@ brukeren selv oppgir. Den deterministiske anbefalingen i konteksten er
 grunnlaget; du kan forklare eller utfordre den forsiktig, men ikke late som at
 du har kjørt nye beregninger.
 
-Du har ingen skrivetilgang i denne versjonen. Hvis brukeren ber om å endre en
-plan, foreslå en konkret justering, men si tydelig at planen ikke er endret
-ennå. Påstå aldri at noe er sendt til Garmin. Ikke gi medisinsk diagnose; ved
-akutte, sterke eller vedvarende symptomer skal du anbefale kvalifisert
-helsehjelp. Maksimalt rundt 180 ord med mindre brukeren eksplisitt ber om mer.
+Du kan foreslå en endring av *brukeroppgitt* skadestatus, men har ingen direkte
+skrivetilgang. Returner KUN ett gyldig JSON-objekt uten markdown:
+{
+  "answer": "Kort svar direkte til brukeren.",
+  "injury_proposal": null eller {
+    "action": "create" eller "update",
+    "injury_id": 123,
+    "body_part": "bare ved create",
+    "severity": 1,
+    "status": "active|healing|resolved",
+    "started_at": "YYYY-MM-DD, bare ved create",
+    "notes": "kort, nøytral oppsummering av det brukeren selv oppga"
+  }
+}
+
+Foreslå bare skadeendring når brukeren tydelig beskriver en statusendring eller
+en ny plage. For update må ``injury_id`` være en av de aktive skadene i
+konteksten. «Kjennes litt bedre» er ikke nok til resolved; spør heller hva som
+er symptomfritt og ved hvilken belastning. Du skal aldri diagnostisere, finne
+på symptomer eller skrive at noe er lagret: brukeren må godkjenne forslaget
+separat. Påstå aldri at noe er sendt til Garmin. Ved akutte, sterke eller
+vedvarende symptomer skal du anbefale kvalifisert helsehjelp. Maksimalt rundt
+180 ord med mindre brukeren eksplisitt ber om mer.
 """
 
 
@@ -49,24 +67,26 @@ class CoachProviderError(RuntimeError):
 
 @dataclass(frozen=True)
 class CoachReply:
-    """Tekstsvar fra en modell, uten sideeffekter."""
+    """Tekstsvar med valgfri, fortsatt uapplisert skadestatus-kandidat."""
 
     answer: str
     model: str
+    injury_proposal: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
 class WeeklyCoachReply:
     """Svar for ukecoachen, med et valgfritt forslag som aldri skrives direkte.
 
-    ``operations`` er bare kandidatdata. API-laget validerer hver operasjon
-    mot øktene i den aktuelle uken, lagrer den som et forslag og krever en
-    separat bekreftelse fra brukeren før ``planned_sessions`` endres.
+    ``operations`` og ``hevy_routine`` er bare kandidatdata. API-laget
+    validerer dem, lagrer dem som forslag og krever et separat, synlig
+    brukerklikk før enten planen eller en Hevy-mal kan endres.
     """
 
     answer: str
     model: str
     operations: list[dict[str, Any]]
+    hevy_routine: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,7 +199,7 @@ def ask_deepseek_coach(
     model: str | None = None,
     http_client: httpx.Client | None = None,
 ) -> CoachReply:
-    """Be DeepSeek om et rent tekstsvar på en kuratert dagskontekst.
+    """Be DeepSeek om tekst og en ufarlig, valgfri skadestatus-kandidat.
 
     ``http_client`` er et eksplisitt test-hook. Produksjon oppretter en kort
     klient per forespørsel, slik at ingen samtale- eller database-tilstand
@@ -213,9 +233,18 @@ def ask_deepseek_coach(
         "stream": False,
     }
 
+    content = _message_content(_request_completion(request, api_key=key, http_client=http_client))
+    decoded = _json_object_from_content(content)
+    if decoded is None:
+        # Behold et godt, men ustrukturert modelsvar. Det får aldri med seg
+        # en sideeffekt når JSON-kontrakten ikke ble fulgt.
+        return CoachReply(answer=content, model=selected_model)
+    answer = decoded.get("answer")
+    injury_proposal = decoded.get("injury_proposal")
     return CoachReply(
-        answer=_message_content(_request_completion(request, api_key=key, http_client=http_client)),
+        answer=answer.strip() if isinstance(answer, str) and answer.strip() else "Jeg fikk ikke formulert et tydelig svar. Prøv igjen.",
         model=selected_model,
+        injury_proposal=injury_proposal if isinstance(injury_proposal, dict) else None,
     )
 
 
@@ -233,13 +262,31 @@ JSON-objekt, uten markdown eller tekst rundt, med denne formen:
     {"action": "skip", "session_id": 123, "reason": "kort grunn"},
     {"action": "replace", "session_id": 123, "type": "easy_run", "description": "...", "target_metrics": {"duration_min": 40}, "reason": "kort grunn"},
     {"action": "add", "date": "YYYY-MM-DD", "type": "strength", "description": "...", "target_metrics": {"duration_min": 30}, "reason": "kort grunn"}
-  ]
+  ],
+  "hevy_routine": null eller {
+    "title": "Kort malnavn",
+    "notes": "Valgfri forklaring",
+    "exercises": [
+      {
+        "exercise": "English Hevy exercise title",
+        "rest_seconds": 120,
+        "notes": "valgfritt",
+        "sets": [
+          {"type": "normal", "weight_kg": 60, "reps": 8}
+        ]
+      }
+    ]
+  }
 }
 
 Bruk bare session_id-er som står i konteksten, og bare datoer innen den
 aktuelle uken. Returner alltid "operations": [] når brukeren bare spør et
 spørsmål, når informasjonen ikke er tilstrekkelig, eller når ingen konkret
 planendring bør foreslås. Ikke påstå at noe er endret eller sendt til Garmin.
+Sett bare ``hevy_routine`` når brukeren uttrykkelig ber om en Hevy-mal/rutine.
+Bruk den vanlige engelske tittelen slik den er kjent i Hevys øvelseskatalog,
+og foreslå aldri mer enn 12 øvelser. Dette er bare et forslag som brukeren må
+godkjenne før det kan opprettes i Hevy. Returner ellers ``hevy_routine``: null.
 Ikke gi medisinsk diagnose; anbefal kvalifisert helsehjelp ved akutte, sterke
 eller vedvarende symptomer."""
 
@@ -292,10 +339,12 @@ def ask_deepseek_week_coach(
 
     answer = decoded.get("answer")
     operations = decoded.get("operations")
+    hevy_routine = decoded.get("hevy_routine")
     return WeeklyCoachReply(
         answer=answer.strip() if isinstance(answer, str) and answer.strip() else "Jeg fikk ikke formulert et tydelig svar. Prøv igjen.",
         model=selected_model,
         operations=[item for item in operations if isinstance(item, dict)] if isinstance(operations, list) else [],
+        hevy_routine=hevy_routine if isinstance(hevy_routine, dict) else None,
     )
 
 

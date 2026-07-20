@@ -51,7 +51,7 @@ def build_coach_context(
     injuries = _rows(
         conn,
         """
-        SELECT body_part, severity, started_at, status, notes
+        SELECT id, body_part, severity, started_at, status, notes
           FROM injuries
          WHERE status IN ('active', 'healing')
          ORDER BY severity DESC, started_at DESC

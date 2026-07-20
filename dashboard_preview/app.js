@@ -5,6 +5,10 @@ const chatMessage = document.querySelector("#chat-message");
 const chatButton = chatForm.querySelector("button");
 const coachReply = document.querySelector("#coach-reply");
 const coachAnswer = document.querySelector("[data-coach-answer]");
+const injuryProposal = document.querySelector("[data-injury-proposal]");
+const injuryProposalTitle = document.querySelector("[data-injury-proposal-title]");
+const injuryProposalDetail = document.querySelector("[data-injury-proposal-detail]");
+const injuryProposalNote = document.querySelector("[data-injury-proposal-note]");
 const reviewForm = document.querySelector("#review-form");
 const reviewNote = document.querySelector("#review-note");
 const reviewButton = reviewForm.querySelector("button");
@@ -22,6 +26,11 @@ const weekCoachReply = document.querySelector("[data-week-coach-reply]");
 const weekCoachAnswer = document.querySelector("[data-week-coach-answer]");
 const weekProposal = document.querySelector("[data-week-proposal]");
 const weekProposalOperations = document.querySelector("[data-week-proposal-operations]");
+const hevyRoutineProposal = document.querySelector("[data-hevy-routine-proposal]");
+const hevyRoutineTitle = document.querySelector("[data-hevy-routine-title]");
+const hevyRoutineNotes = document.querySelector("[data-hevy-routine-notes]");
+const hevyRoutineExercises = document.querySelector("[data-hevy-routine-exercises]");
+const weekBlockContext = document.querySelector("[data-week-block-context]");
 const blockChatForm = document.querySelector("#block-chat-form");
 const blockChatMessage = document.querySelector("#block-chat-message");
 const blockChatButton = blockChatForm?.querySelector("button");
@@ -36,7 +45,9 @@ const workoutDetailBody = document.querySelector("[data-workout-detail-body]");
 let toastTimer;
 let currentToday;
 let displayedWeekStart;
+let currentInjuryProposal;
 let currentWeekProposal;
+let currentHevyRoutineProposal;
 let currentBlockProposal;
 const coachHistory = [];
 const weekCoachHistory = [];
@@ -79,6 +90,68 @@ function setMetricValue(selector, value, unit = "") {
     unitElement.textContent = unit;
     element.append(unitElement);
   }
+}
+
+function injuryStatusLabel(status) {
+  return {
+    active: "Aktiv",
+    healing: "I bedring",
+    resolved: "Løst",
+  }[status] || status || "Ukjent";
+}
+
+function renderInjuryProposal(proposal) {
+  const injury = proposal?.injury;
+  if (!injuryProposal || !injury?.body_part) return;
+  currentInjuryProposal = proposal;
+  const isUpdate = injury.action === "update";
+  injuryProposalTitle.textContent = isUpdate
+    ? `${injury.body_part}: ${injuryStatusLabel(injury.from_status)} → ${injuryStatusLabel(injury.status)}`
+    : `Legg inn ${injury.body_part.toLowerCase()}`;
+  injuryProposalDetail.textContent = isUpdate
+    ? `Alvorlighetsgrad ${injury.from_severity} → ${injury.severity} · brukeroppgitt`
+    : `Aktiv · alvorlighetsgrad ${injury.severity} · startet ${formatDate(injury.started_at)}`;
+  injuryProposalNote.textContent = injury.notes
+    ? `Notat: ${injury.notes}`
+    : "Dette er en brukeroppgitt statusendring, ikke en medisinsk diagnose.";
+  injuryProposal.hidden = false;
+}
+
+function clearInjuryProposal() {
+  currentInjuryProposal = undefined;
+  if (injuryProposal) injuryProposal.hidden = true;
+}
+
+function previewCoachReply(question) {
+  const mentionsInjury = /\b(legghinne|shin|skinnebein|kne|lår|smerte|vondt|symptomfri|ikke\s+kjenner)\b/i.test(question);
+  if (!mentionsInjury) return null;
+  const soundsResolved = /symptomfri|ikke\s+kjenner|ingen\s+smerte|borte/i.test(question);
+  const injury = soundsResolved
+    ? {
+        action: "update",
+        injury_id: null,
+        body_part: "Legghinneplager",
+        from_status: "active",
+        from_severity: 2,
+        status: "healing",
+        severity: 1,
+        notes: "Brukeren oppgir at plagene er borte nå.",
+      }
+    : {
+        action: "create",
+        body_part: "Legghinneplager",
+        status: "active",
+        severity: 2,
+        started_at: currentToday?.date || "2026-07-20",
+        notes: "Brukeren oppgir smerter ved løping.",
+      };
+  return {
+    answer: soundsResolved
+      ? "Fint tegn. Jeg foreslår å sette dette til i bedring, men behold en kontrollert retur til løping til du ser hvordan leggen svarer på belastning."
+      : "Jeg har laget et forslag om å registrere dette som aktiv skade. Godkjenn bare hvis oppsummeringen stemmer; da tar coachingreglene hensyn til det videre.",
+    model: "Preview",
+    injury_proposal: { id: null, status: "pending", injury },
+  };
 }
 
 function formatDuration(seconds) {
@@ -472,6 +545,8 @@ function plannedWorkoutDetail(session) {
   ];
   if (target.distance_km != null) targetRows.push({ label: "Distansemål", value: `${number.format(target.distance_km)} km` });
   if (session?.notes) targetRows.push({ label: "Plan-notat", value: session.notes });
+  const isStrength = /strength|upper|lower/i.test(session?.type || "")
+    || /styrke|fullkropp|overkropp|underkropp/i.test(session?.description || "");
   renderWorkoutDetail({
     eyebrow: `PLANLAGT ØKT · ${formatDate(session?.date || currentToday?.date || "")}`,
     title: sessionTitle(session || {}),
@@ -479,7 +554,7 @@ function plannedWorkoutDetail(session) {
     stats: [
       { label: "VARIGHET", value: duration },
       { label: "INTENSITET", value: zone },
-      { label: "STATUS", value: "Sendt til Garmin" },
+      { label: "STATUS", value: isStrength ? "Hevy-mal via ukecoach" : "Garmin-push ikke koblet" },
     ],
     sections: [
       detailSection("MÅL FOR ØKTA", { rows: targetRows }),
@@ -677,6 +752,9 @@ function previewWeek(start) {
     };
   });
   const workouts = days.flatMap((day) => day.workouts);
+  const blockWeekNumber = weekStart >= "2026-07-20"
+    ? Math.floor((dateFromIso(weekStart) - dateFromIso("2026-07-20")) / 86400000 / 7) + 1
+    : 0;
   return {
     start: weekStart,
     end: addDays(weekStart, 6),
@@ -688,6 +766,16 @@ function previewWeek(start) {
     total_duration_sec: workouts.reduce((sum, item) => sum + (item.duration_sec || 0), 0),
     total_distance_m: workouts.reduce((sum, item) => sum + (item.distance_m || 0), 0),
     pending_reviews: isReferenceWeek ? 1 : 0,
+    block_context: blockWeekNumber >= 1 && blockWeekNumber <= 6 ? {
+      name: "6 uker · Stabil løpsrytme",
+      phase: "base",
+      week_number: blockWeekNumber,
+      total_weeks: 6,
+      focus: ["Rytme og toleranse", "Bygge frekvens", "Kontrollert terskel", "Konsolidere", "Robust rolig volum", "Deload og vurdering"][blockWeekNumber - 1],
+      progression_note: "Planlegg konkrete økter for denne uken med coachen før noe lagres.",
+      planned_volume_note: "3 rolige økter · 1 valgfri styrke",
+      is_deload: blockWeekNumber === 6,
+    } : null,
   };
 }
 
@@ -905,6 +993,7 @@ function renderWeekPage(week) {
   setText("[data-week-page-title]", `Uke ${isoWeekNumber(week.start)}`);
   setText("[data-week-page-range]", formatWeekRange(week.start, week.end));
   setText("[data-week-coach-scope]", `Uke ${isoWeekNumber(week.start)}`);
+  renderWeekBlockContext(week.block_context, week);
   setText("[data-week-stat-workouts]", String(week.workout_count ?? 0));
   const trainingDays = week.training_days ?? week.completed_days ?? 0;
   setText("[data-week-stat-workouts-foot]", `${trainingDays} dager med trening`);
@@ -942,6 +1031,31 @@ function renderWeekPage(week) {
     item.append(date, title, state);
     weekCalendar.append(item);
   });
+}
+
+function renderWeekBlockContext(block, week) {
+  if (!weekBlockContext) return;
+  if (!block) {
+    weekBlockContext.hidden = true;
+    return;
+  }
+  const phase = blockPhaseLabel(block.phase || "base");
+  const deload = block.is_deload ? " · Deload" : "";
+  setText(
+    "[data-week-block-title]",
+    `Uke ${block.week_number} av ${block.total_weeks} · ${phase}${deload}`,
+  );
+  setText("[data-week-block-focus]", block.focus || block.name || "Ukens retning");
+  setText(
+    "[data-week-block-note]",
+    block.progression_note || "Blokken setter retningen; velg konkrete økter sammen med coachen.",
+  );
+  const planned = week.planned_sessions || 0;
+  setText(
+    "[data-week-block-volume]",
+    block.planned_volume_note || (planned ? `${planned} planlagte økter` : "Ingen konkrete økter ennå"),
+  );
+  weekBlockContext.hidden = false;
 }
 
 function setLogSection(selector, label, lines) {
@@ -1171,6 +1285,13 @@ function hydrateDashboard(payload) {
     const duration = session.target_metrics?.duration_min;
     setText("[data-workout-duration]", duration ? `${number.format(duration)} min` : "—");
     setText("[data-workout-intensity]", sessionIntensity(session));
+    const target = document.querySelector("[data-workout-target]");
+    const isStrength = /strength|upper|lower/i.test(session.type || "")
+      || /styrke|fullkropp|overkropp|underkropp/i.test(session.description || "");
+    if (target) {
+      target.textContent = isStrength ? "Hevy-mal via ukecoach" : "Garmin-push ikke koblet";
+      target.classList.toggle("pending-target", true);
+    }
   } else {
     document.querySelector("[data-workout-card]")?.setAttribute("hidden", "");
   }
@@ -1283,9 +1404,66 @@ function clearWeekProposal() {
   if (weekProposalOperations) weekProposalOperations.replaceChildren();
 }
 
+function hevySetSummary(sets) {
+  const normal = (sets || []).filter((set) => set.type !== "warmup");
+  const visible = normal.length ? normal : sets || [];
+  if (!visible.length) return "Ingen sett";
+  const first = visible[0];
+  const allSame = visible.every((set) => set.reps === first.reps && set.weight_kg === first.weight_kg);
+  if (allSame) return `${visible.length} × ${first.reps}${first.weight_kg == null ? "" : ` @ ${number.format(first.weight_kg)} kg`}`;
+  return visible.map((set) => `${set.reps}${set.weight_kg == null ? "" : ` @ ${number.format(set.weight_kg)} kg`}`).join(" · ");
+}
+
+function renderHevyRoutineProposal(proposal) {
+  const routine = proposal?.routine;
+  if (!hevyRoutineProposal || !hevyRoutineExercises || !routine?.title || !Array.isArray(routine.exercises)) return;
+  currentHevyRoutineProposal = proposal;
+  hevyRoutineTitle.textContent = routine.title;
+  hevyRoutineNotes.textContent = routine.notes || "Malen opprettes først når du godkjenner den.";
+  hevyRoutineExercises.replaceChildren();
+  routine.exercises.forEach((exercise) => {
+    const row = document.createElement("article");
+    row.className = "hevy-routine-exercise";
+    const name = document.createElement("strong");
+    name.textContent = exercise.exercise;
+    const detail = document.createElement("p");
+    detail.textContent = `${hevySetSummary(exercise.sets)}${exercise.rest_seconds ? ` · ${exercise.rest_seconds} sek pause` : ""}`;
+    row.append(name, detail);
+    hevyRoutineExercises.append(row);
+  });
+  hevyRoutineProposal.hidden = false;
+}
+
+function clearHevyRoutineProposal() {
+  currentHevyRoutineProposal = undefined;
+  if (hevyRoutineProposal) hevyRoutineProposal.hidden = true;
+  if (hevyRoutineExercises) hevyRoutineExercises.replaceChildren();
+}
+
 function previewWeekCoachReply(question) {
+  const wantsHevy = /\b(hevy|mal|template|rutine)\b/i.test(question);
   const wantsChange = /\b(flytt|endre|bytt|kutt|legg\s+til|droppe|dropp)\b/i.test(question);
   const weekStart = displayedWeekStart || "2026-07-13";
+  if (wantsHevy) {
+    return {
+      answer: "Her er en konkret Hevy-mal for uken. Se øvelsene og settene før du oppretter den — i previewet sendes ingenting til Hevy.",
+      model: "Preview",
+      operations: [],
+      hevy_proposal: {
+        id: null,
+        status: "pending",
+        routine: {
+          title: "Fullkropp · grunnstyrke",
+          notes: "To økter denne uken med kontrollert progresjon.",
+          exercises: [
+            { exercise: "Barbell Squat", rest_seconds: 150, sets: [{ type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }] },
+            { exercise: "Barbell Bench Press", rest_seconds: 120, sets: [{ type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }] },
+            { exercise: "Lat Pulldown", rest_seconds: 90, sets: [{ type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }] },
+          ],
+        },
+      },
+    };
+  }
   if (!wantsChange) {
     return {
       answer: "I previewet kan coachen svare på spørsmål om den valgte uken. Når dashboardet kjører på VPS-en, får svaret den faktiske ukekonteksten og kan ved behov legge ved et bekreftbart endringsforslag.",
@@ -1340,11 +1518,18 @@ document.querySelectorAll("[data-week-nav]").forEach((button) => {
     const base = displayedWeekStart || currentToday?.date || isoDate(new Date());
     const movement = button.dataset.weekNav;
     clearWeekProposal();
+    clearHevyRoutineProposal();
     if (weekCoachReply) weekCoachReply.hidden = true;
     if (movement === "previous") loadWeek(addDays(base, -7));
     else if (movement === "next") loadWeek(addDays(base, 7));
     else loadWeek(currentToday?.date || (window.location.protocol === "file:" ? "2026-07-13" : isoDate(new Date())));
   });
+});
+
+document.querySelector("[data-week-plan-from-block]")?.addEventListener("click", () => {
+  weekChatForm?.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.setTimeout(() => weekChatMessage?.focus(), 280);
+  showToast("Ukecoachen kjenner retningen fra blokken. Legg inn konkrete økter når du er klar.");
 });
 
 document.addEventListener("click", (event) => {
@@ -1353,6 +1538,7 @@ document.addEventListener("click", (event) => {
   const weekNavigation = document.querySelector('[data-view="Uke"]');
   if (weekNavigation) setActiveView(weekNavigation);
   clearWeekProposal();
+  clearHevyRoutineProposal();
   if (weekCoachReply) weekCoachReply.hidden = true;
   showPage("Uke", opener.dataset.blockOpenWeek);
 });
@@ -1394,6 +1580,7 @@ chatForm.addEventListener("submit", async (event) => {
 
   chatButton.disabled = true;
   chatButton.textContent = "Tenker …";
+  clearInjuryProposal();
   try {
     const response = await fetch("/api/coach/chat", {
       method: "POST",
@@ -1411,12 +1598,71 @@ chatForm.addEventListener("submit", async (event) => {
       { role: "assistant", content: payload.answer },
     );
     if (coachHistory.length > 8) coachHistory.splice(0, coachHistory.length - 8);
+    if (payload.injury_proposal) renderInjuryProposal(payload.injury_proposal);
     chatMessage.value = "";
   } catch {
-    showToast("Coachen svarte ikke. Prøv igjen om litt.");
+    const preview = previewCoachReply(question);
+    if (!preview) {
+      showToast("Coachen svarte ikke. Prøv igjen om litt.");
+      return;
+    }
+    coachAnswer.textContent = preview.answer;
+    coachReply.hidden = false;
+    if (preview.injury_proposal) renderInjuryProposal(preview.injury_proposal);
+    chatMessage.value = "";
   } finally {
     chatButton.disabled = false;
     chatButton.textContent = "Send";
+  }
+});
+
+document.querySelector("[data-injury-proposal-apply]")?.addEventListener("click", async () => {
+  if (!currentInjuryProposal) return;
+  const button = document.querySelector("[data-injury-proposal-apply]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Oppdaterer …";
+  }
+  try {
+    if (!Number.isInteger(currentInjuryProposal.id)) {
+      clearInjuryProposal();
+      showToast("Skadestatus er oppdatert i previewet.");
+      return;
+    }
+    const response = await fetch(`/api/injury-proposals/${currentInjuryProposal.id}/apply`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("injury proposal apply failed");
+    clearInjuryProposal();
+    await loadToday();
+    showToast("Skadestatus er oppdatert og brukes av coachen videre.");
+  } catch {
+    showToast("Kunne ikke oppdatere skadestatusen. Ingenting er endret.");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Bekreft oppdatering";
+    }
+  }
+});
+
+document.querySelector("[data-injury-proposal-discard]")?.addEventListener("click", async () => {
+  const proposal = currentInjuryProposal;
+  clearInjuryProposal();
+  if (!proposal || !Number.isInteger(proposal.id)) {
+    showToast("Skadeforslaget er forkastet.");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/injury-proposals/${proposal.id}/discard`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("injury proposal discard failed");
+    showToast("Skadeforslaget er forkastet.");
+  } catch {
+    showToast("Skadeforslaget kunne ikke forkastes på serveren. Det er uansett ikke brukt.");
   }
 });
 
@@ -1433,6 +1679,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekChatButton.textContent = "Tenker …";
   }
   clearWeekProposal();
+  clearHevyRoutineProposal();
   try {
     const weekStart = displayedWeekStart || startOfWeek(currentToday?.date || isoDate(new Date()));
     const response = await fetch(`/api/weeks/${weekStart}/coach`, {
@@ -1449,6 +1696,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
     if (weekCoachHistory.length > 8) weekCoachHistory.splice(0, weekCoachHistory.length - 8);
     if (payload.proposal) renderWeekProposal(payload.proposal);
+    if (payload.hevy_proposal) renderHevyRoutineProposal(payload.hevy_proposal);
     if (weekChatMessage) weekChatMessage.value = "";
   } catch {
     const preview = previewWeekCoachReply(question);
@@ -1456,6 +1704,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     if (weekCoachReply) weekCoachReply.hidden = false;
     setText("[data-week-coach-model]", `${preview.model} · Ingen endring er gjort`);
     if (preview.operations.length) renderWeekProposal({ id: null, operations: preview.operations, status: "pending" });
+    if (preview.hevy_proposal) renderHevyRoutineProposal(preview.hevy_proposal);
     if (weekChatMessage) weekChatMessage.value = "";
   } finally {
     if (weekChatButton) {
@@ -1512,6 +1761,58 @@ document.querySelector("[data-week-proposal-discard]")?.addEventListener("click"
     showToast("Forslaget er forkastet.");
   } catch {
     showToast("Forslaget kunne ikke forkastes på serveren. Planen er uansett ikke endret.");
+  }
+});
+
+document.querySelector("[data-hevy-routine-apply]")?.addEventListener("click", async () => {
+  if (!currentHevyRoutineProposal) return;
+  const button = document.querySelector("[data-hevy-routine-apply]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Oppretter …";
+  }
+  try {
+    if (!Number.isInteger(currentHevyRoutineProposal.id)) {
+      clearHevyRoutineProposal();
+      showToast("Malen er opprettet i previewet. På VPS-en sendes den til Hevy her.");
+      return;
+    }
+    const response = await fetch(`/api/hevy-routine-proposals/${currentHevyRoutineProposal.id}/apply`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || "Kunne ikke opprette Hevy-malen.");
+    }
+    clearHevyRoutineProposal();
+    showToast("Hevy-malen er opprettet.");
+  } catch (error) {
+    showToast(error?.message || "Kunne ikke opprette Hevy-malen. Ingenting er endret i Hevy.");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Opprett i Hevy";
+    }
+  }
+});
+
+document.querySelector("[data-hevy-routine-discard]")?.addEventListener("click", async () => {
+  const proposal = currentHevyRoutineProposal;
+  clearHevyRoutineProposal();
+  if (!proposal || !Number.isInteger(proposal.id)) {
+    showToast("Hevy-forslaget er forkastet.");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/discard`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("hevy routine discard failed");
+    showToast("Hevy-forslaget er forkastet.");
+  } catch {
+    showToast("Hevy-forslaget kunne ikke forkastes på serveren. Det er uansett ikke opprettet.");
   }
 });
 

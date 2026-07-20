@@ -68,4 +68,11 @@ def migrate(conn: sqlite3.Connection, migrations_dir: Path = MIGRATIONS_DIR) -> 
         )
         newly_applied.append(version)
 
+    # ``executescript`` kan committe selve DDL-en før versjonsraden er
+    # skrevet. Uten en eksplisitt commit her kan den *siste* migreringen få
+    # tabellene sine opprettet, men miste versjonsmarkøren når tilkoblingen
+    # stenges. Da forsøker neste oppstart å opprette samme tabell på nytt.
+    if newly_applied:
+        conn.commit()
+
     return newly_applied
