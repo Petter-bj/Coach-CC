@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from datetime import date
 
@@ -11,6 +12,7 @@ import httpx
 from src.api.app import create_app
 from src.api.blocks import build_block_payload
 from src.api.week import build_week_overview
+from src.api.week_planning import build_week_coach_context
 from src.coaching.deepseek import WeeklyCoachReply
 from src.db.connection import configure
 from src.db.migrations import migrate
@@ -201,6 +203,147 @@ def test_weekly_coach_discards_hallucinated_or_out_of_week_changes(tmp_path) -> 
         assert conn.execute("SELECT COUNT(*) AS n FROM weekly_plan_proposals").fetchone()["n"] == 0
     finally:
         conn.close()
+
+
+def test_week_coach_context_exposes_today_and_named_days() -> None:
+    """Konteksten skal gi modellen i-dag, valgt uke og norske ukedag/dato-par."""
+    conn = _db(":memory:")
+    try:
+        context = build_week_coach_context(
+            conn, date(2026, 7, 20), question="Lag Hevy-maler tirsdag og fredag",
+            today=date(2026, 7, 22),
+        )
+    finally:
+        conn.close()
+
+    scope = context["scope"]
+    assert scope["today"] == "2026-07-22"
+    assert scope["week_start"] == "2026-07-20"
+    assert scope["week_end"] == "2026-07-26"
+    assert scope["iso_week"] == date(2026, 7, 20).isocalendar().week
+    assert scope["relation_to_today"] == "current"
+
+    # Alle syv dager med norsk ukedagsnavn og ISO-dato, i rekkefølge.
+    days = context["days"]
+    assert [day["weekday"] for day in days] == [
+        "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag",
+    ]
+    assert days[1]["date"] == "2026-07-21"  # tirsdag
+    assert days[4]["date"] == "2026-07-24"  # fredag
+    assert days[2]["is_today"] is True  # onsdag 22.
+
+
+def test_week_coach_context_includes_knowledge_without_leaking_claude_md() -> None:
+    """Modellen får coach-kjerne + relevante moduler, men aldri CLI/MCP-instrukser."""
+    conn = _db(":memory:")
+    try:
+        context = build_week_coach_context(
+            conn, date(2026, 7, 20), question="Lag en Hevy-mal for fullkropp",
+        )
+    finally:
+        conn.close()
+
+    policy = context["coaching_policy"]
+    assert policy["surface"] == "week"
+    assert policy["core"]  # kjernen er alltid med
+    module_names = {module["module"] for module in policy["modules"]}
+    # Styrkespørsmål på ukeflaten → planlegging + styrke er med.
+    assert "planning/phases_and_priority.md" in module_names
+    assert any(name.startswith("strength/") for name in module_names)
+
+    # Ingen operative CLI-/MCP-/Claude Code-instrukser skal lekke inn.
+    blob = json.dumps(context, ensure_ascii=False).lower()
+    for forbidden in ("uv run", "src.cli", "hevy mcp", "launchd", "claude code", "mcp-verktøy"):
+        assert forbidden not in blob
+
+
+def test_weekly_coach_creates_two_hevy_routines_for_two_days(tmp_path) -> None:
+    """«Fullkropp tirsdag og fredag» → to forslag med riktige datoer, og bare den
+    bekreftede malen opprettes i Hevy."""
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    conn.close()
+    created: list[dict] = []
+
+    def responder(question: str, context: dict) -> WeeklyCoachReply:
+        # Modellen kjenner ukens datoer fra konteksten og spør aldri om dato.
+        assert context["scope"]["week_start"] == "2026-07-20"
+        return WeeklyCoachReply(
+            answer="To fullkropp-maler, tirsdag og fredag.",
+            model="deepseek-v4-pro",
+            operations=[],
+            hevy_routines=[
+                {
+                    "title": "Fullkropp A",
+                    "purpose": "Fullkropp A · tirsdag",
+                    "weekday": "tirsdag",
+                    "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+                },
+                {
+                    "title": "Fullkropp B",
+                    "purpose": "Fullkropp B · fredag",
+                    "weekday": "fredag",
+                    "exercises": [{"exercise": "Barbell Bench Press", "sets": [{"type": "normal", "reps": 8}]}],
+                },
+            ],
+        )
+
+    def create_in_hevy(routine: dict) -> str:
+        created.append(routine)
+        return f"hevy-{routine['title']}"
+
+    async def ask_then_apply_one():
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=path,
+                api_token="test-token",
+                weekly_coach_responder=responder,
+                hevy_routine_creator=create_in_hevy,
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            proposed = await client.post(
+                "/api/weeks/2026-07-20/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Lag Hevy-maler for fullkropp tirsdag og fredag"},
+            )
+            first_id = proposed.json()["hevy_proposals"][0]["id"]
+            applied = await client.post(
+                f"/api/hevy-routine-proposals/{first_id}/apply",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        return proposed, applied
+
+    proposed, applied = asyncio.run(ask_then_apply_one())
+
+    body = proposed.json()
+    assert body["changes_applied"] is False
+    # To forslag med riktige datoer i valgt uke.
+    assert len(body["hevy_proposals"]) == 2
+    assert body["hevy_proposals"][0]["routine"]["title"] == "Fullkropp A"
+    assert body["hevy_proposals"][0]["suggested_date"] == "2026-07-21"
+    assert body["hevy_proposals"][0]["weekday"] == "tirsdag"
+    assert body["hevy_proposals"][1]["suggested_date"] == "2026-07-24"
+    # Bakoverkompatibelt enkelt-felt peker på første forslag.
+    assert body["hevy_proposal"]["id"] == body["hevy_proposals"][0]["id"]
+
+    # Ingen Hevy-kall skjedde før bekreftelse, og bare den bekreftede malen
+    # ble opprettet.
+    assert applied.status_code == 200
+    assert [routine["title"] for routine in created] == ["Fullkropp A"]
+
+    # Den andre malen står fortsatt som pending, urørt.
+    conn = _db(path)
+    try:
+        statuses = {
+            row["suggested_date"]: row["status"]
+            for row in conn.execute(
+                "SELECT suggested_date, status FROM hevy_routine_proposals ORDER BY id"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+    assert statuses == {"2026-07-21": "applied", "2026-07-24": "pending"}
 
 
 def test_weekly_coach_requires_confirmation_before_creating_hevy_routine(tmp_path) -> None:

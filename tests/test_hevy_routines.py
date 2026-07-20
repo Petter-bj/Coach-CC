@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from src.api.hevy_routines import validate_hevy_routine
+from src.api.hevy_routines import validate_hevy_routine, validate_hevy_routines
 from src.integrations.hevy import HevyRoutineError, create_routine
 
 
@@ -41,6 +41,58 @@ def test_validate_hevy_routine_rejects_an_invalid_set() -> None:
             "sets": [{"type": "normal", "reps": 0}],
         }],
     }) is None
+
+
+def test_validate_hevy_routines_resolves_weekday_and_date_within_week() -> None:
+    """«Tirsdag og fredag» gir to maler med riktige datoer i valgt uke."""
+    routines = validate_hevy_routines(
+        [
+            {
+                "title": "Fullkropp A",
+                "purpose": "Fullkropp A · tirsdag",
+                "weekday": "tirsdag",
+                "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+            },
+            {
+                "name": "Fullkropp B",  # name som alias for title
+                "date": "2026-07-24",  # fredag
+                "exercises": [{"exercise": "Barbell Bench Press", "sets": [{"type": "normal", "reps": 8}]}],
+            },
+        ],
+        week_start="2026-07-20",
+    )
+
+    assert len(routines) == 2
+    assert routines[0]["routine"]["title"] == "Fullkropp A"
+    assert routines[0]["suggested_date"] == "2026-07-21"  # tirsdag
+    assert routines[0]["purpose"] == "Fullkropp A · tirsdag"
+    assert routines[1]["routine"]["title"] == "Fullkropp B"
+    assert routines[1]["suggested_date"] == "2026-07-24"  # fredag
+
+
+def test_validate_hevy_routines_drops_dates_outside_the_week() -> None:
+    routines = validate_hevy_routines(
+        [{
+            "title": "Utenfor uka",
+            "date": "2026-08-01",
+            "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+        }],
+        week_start="2026-07-20",
+    )
+    assert len(routines) == 1
+    assert routines[0]["suggested_date"] is None
+
+
+def test_validate_hevy_routines_accepts_a_single_dict_backward_compatible() -> None:
+    routines = validate_hevy_routines(
+        {
+            "title": "Fullkropp A",
+            "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+        },
+        week_start="2026-07-20",
+    )
+    assert len(routines) == 1
+    assert routines[0]["routine"]["title"] == "Fullkropp A"
 
 
 def test_create_routine_resolves_templates_then_posts_exact_payload(

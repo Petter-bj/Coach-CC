@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from src.api.today import build_today_payload
+from src.coaching.knowledge import select_knowledge, topic_flags_from_text
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -16,6 +17,8 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> l
 def build_coach_context(
     conn: sqlite3.Connection,
     target_date: date | None = None,
+    *,
+    question: str = "",
 ) -> dict[str, Any]:
     """Lag et begrenset, JSON-serialiserbart bilde av den personlige konteksten.
 
@@ -101,6 +104,18 @@ def build_coach_context(
         (as_of,),
     ).fetchone()
 
+    # Coaching-kjerne + relevante temamoduler. På dag-flaten er styrke/løping/
+    # skade avledet fra spørsmålet; planlegging hører til uke-/blokk-flatene.
+    include_strength, include_running = topic_flags_from_text(
+        question,
+        " ".join(str(w.get("type") or "") for w in recent_workouts),
+    )
+    coaching_policy = select_knowledge(
+        surface="today",
+        include_strength=include_strength,
+        include_running=include_running or bool(injuries),
+    )
+
     return {
         "date": today["date"],
         "today": {
@@ -117,4 +132,5 @@ def build_coach_context(
         "recent_workouts": recent_workouts,
         "latest_nutrition_summary": dict(nutrition) if nutrition else None,
         "latest_weight_summary": dict(weight) if weight else None,
+        "coaching_policy": coaching_policy,
     }

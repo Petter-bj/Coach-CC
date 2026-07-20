@@ -25,7 +25,7 @@ from src.api.hevy_routines import (
     discard_hevy_routine_proposal,
     mark_hevy_routine_proposal_applied,
     pending_hevy_routine_proposal,
-    validate_hevy_routine,
+    validate_hevy_routines,
 )
 from src.api.injury_proposals import (
     apply_injury_proposal,
@@ -192,7 +192,7 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
-            context = build_block_coach_context(conn)
+            context = build_block_coach_context(conn, question=question)
             stored_history = conversation_history(conn, thread=BLOCK_THREAD)
         # Historikk fra VPS-en er fasit. Et nytt klientvindu kan dermed hente
         # samme samtale, mens client-history bare fungerer som en myk overgang
@@ -261,7 +261,7 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
-            context = build_coach_context(conn)
+            context = build_coach_context(conn, question=question)
         if message.history:
             context["conversation_history"] = [turn.model_dump() for turn in message.history]
         try:
@@ -329,7 +329,7 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail="Message cannot be blank")
         with connect(db_path) as conn:
-            context = build_week_coach_context(conn, week_start)
+            context = build_week_coach_context(conn, week_start, question=question)
         if message.history:
             context["conversation_history"] = [turn.model_dump() for turn in message.history]
         try:
@@ -346,33 +346,43 @@ def create_app(
             ) from exc
 
         operations = validate_operations(reply.operations, week_context=context)
+        # Ny liste-form med bakoverkompatibelt enkelt-felt: en modell som fortsatt
+        # svarer med ``hevy_routine`` foldes inn i listen.
+        raw_routines = list(reply.hevy_routines)
+        if not raw_routines and reply.hevy_routine is not None:
+            raw_routines = [reply.hevy_routine]
+        week_start_iso = context["scope"]["week_start"]
+        routines = validate_hevy_routines(raw_routines, week_start=week_start_iso)
         proposal = None
-        hevy_proposal = None
-        routine = validate_hevy_routine(reply.hevy_routine)
-        if operations or routine:
+        hevy_proposals: list[dict[str, Any]] = []
+        if operations or routines:
             with connect(db_path) as conn:
                 if operations:
                     proposal = create_proposal(
                         conn,
-                        week_start=context["scope"]["week_start"],
+                        week_start=week_start_iso,
                         question=question,
                         coach_answer=reply.answer,
                         operations=operations,
                     )
-                if routine:
-                    hevy_proposal = create_hevy_routine_proposal(
+                for candidate in routines:
+                    hevy_proposals.append(create_hevy_routine_proposal(
                         conn,
-                        week_start=context["scope"]["week_start"],
+                        week_start=week_start_iso,
                         question=question,
                         coach_answer=reply.answer,
-                        routine=routine,
-                    )
+                        routine=candidate["routine"],
+                        suggested_date=candidate["suggested_date"],
+                        purpose=candidate["purpose"],
+                    ))
         return {
             "answer": reply.answer,
             "model": reply.model,
             "changes_applied": False,
             "proposal": proposal,
-            "hevy_proposal": hevy_proposal,
+            "hevy_proposals": hevy_proposals,
+            # Bakoverkompatibelt enkelt-felt: første forslag eller null.
+            "hevy_proposal": hevy_proposals[0] if hevy_proposals else None,
         }
 
     @app.post("/api/week-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])

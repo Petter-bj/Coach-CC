@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from src.api.blocks import build_block_payload
+from src.coaching.knowledge import select_knowledge, topic_flags_from_text
 
 
 VALID_PHASES = {"base", "build", "peak", "taper", "recovery"}
@@ -37,6 +38,8 @@ def _monday(value: Any) -> date | None:
 def build_block_coach_context(
     conn: sqlite3.Connection,
     as_of: date | None = None,
+    *,
+    question: str = "",
 ) -> dict[str, Any]:
     """Kuratert strategi-kontekst, uten rå helse- eller posisjonsdata."""
     payload = build_block_payload(conn, as_of)
@@ -76,12 +79,25 @@ def build_block_coach_context(
             ],
         },
         "known_goals": goals,
+        # Blokk-flaten får alltid coach-kjerne + planlegging/fase, pluss
+        # styrke/løping når spørsmålet berører det.
+        "coaching_policy": _block_coaching_policy(question),
         "proposal_contract": {
             "writes_are_not_automatic": True,
             "creates_individual_sessions": False,
             "normal_week_range": f"{MIN_BLOCK_WEEKS}–{MAX_BLOCK_WEEKS}",
         },
     }
+
+
+def _block_coaching_policy(question: str) -> dict[str, Any]:
+    include_strength, include_running = topic_flags_from_text(question)
+    return select_knowledge(
+        surface="block",
+        include_strength=include_strength,
+        include_running=include_running,
+        include_planning=True,
+    )
 
 
 def validate_block_proposal(

@@ -77,14 +77,14 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
 
 def test_migrate_creates_all_tables(conn: sqlite3.Connection) -> None:
     applied = migrate(conn)
-    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert _table_names(conn) == EXPECTED_TABLES
 
 
 def test_migrate_is_idempotent(conn: sqlite3.Connection) -> None:
     first = migrate(conn)
     second = migrate(conn)
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert second == []
 
 
@@ -167,7 +167,7 @@ def test_wal_mode_active(tmp_path: Path) -> None:
 def test_schema_migrations_records_version(conn: sqlite3.Connection) -> None:
     migrate(conn)
     rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
-    assert [r[0] for r in rows] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert [r[0] for r in rows] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 
 def test_check_constraint_rpe_range(conn: sqlite3.Connection) -> None:
@@ -190,3 +190,39 @@ def test_check_constraint_yazio_meal_enum(conn: sqlite3.Connection) -> None:
             VALUES ('2026-04-20', 'supper', 500)
             """
         )
+
+
+def test_migration_010_preserves_existing_hevy_proposals(conn: sqlite3.Connection) -> None:
+    """En eksisterende Hevy-forslag-rad fra enkelt-rutine-modellen (008) skal
+    overleve migrering 010 uendret, med de nye kolonnene lagt til som NULL."""
+    migrations_dir = Path(__file__).resolve().parents[1] / "src" / "db" / "migrations"
+
+    # Bygg tabellen slik migrering 008 definerte den (før 010) og legg inn en
+    # allerede opprettet mal — akkurat den typen data vi ikke vil miste.
+    conn.executescript((migrations_dir / "008_hevy_routine_proposals.sql").read_text())
+    conn.execute(
+        """
+        INSERT INTO hevy_routine_proposals
+            (week_start, question, coach_answer, routine_json, status, hevy_routine_id)
+        VALUES ('2026-07-20', 'Lag en mal', 'Her er en mal.', '{"title": "Fullkropp A"}',
+                'applied', 'hevy-routine-1')
+        """
+    )
+    conn.commit()
+
+    # Kjør 010-migreringen (den bakoverkompatible ALTER-en).
+    conn.executescript((migrations_dir / "010_hevy_routine_proposal_scheduling.sql").read_text())
+
+    row = conn.execute(
+        """
+        SELECT week_start, status, hevy_routine_id, routine_json, suggested_date, purpose
+          FROM hevy_routine_proposals
+        """
+    ).fetchone()
+    assert row["week_start"] == "2026-07-20"
+    assert row["status"] == "applied"
+    assert row["hevy_routine_id"] == "hevy-routine-1"
+    assert row["routine_json"] == '{"title": "Fullkropp A"}'
+    # De nye planleggingskolonnene finnes nå og er NULL for den gamle raden.
+    assert row["suggested_date"] is None
+    assert row["purpose"] is None

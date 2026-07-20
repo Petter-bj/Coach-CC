@@ -15,16 +15,46 @@ from typing import Any
 
 from src.api.blocks import build_block_payload
 from src.api.week import build_week_overview
+from src.coaching.knowledge import select_knowledge, topic_flags_from_text
+from src.coaching.philosophy import phase_guidance, running_ruling
 
 
 VALID_ACTIONS = {"move", "skip", "replace", "add"}
 VALID_SESSION_TYPES = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 MAX_OPERATIONS = 6
 
+_WEEKDAY_NAMES_NO = (
+    "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag",
+)
+
 
 def _week_bounds(week_start: date) -> tuple[str, str]:
     monday = week_start - timedelta(days=week_start.weekday())
     return monday.isoformat(), (monday + timedelta(days=6)).isoformat()
+
+
+def _week_relation(monday: date, today: date) -> str:
+    """Om den valgte uken er 'past', 'current' eller 'future' relativt til i dag."""
+    today_monday = today - timedelta(days=today.weekday())
+    if monday < today_monday:
+        return "past"
+    if monday > today_monday:
+        return "future"
+    return "current"
+
+
+def _active_injuries(conn: sqlite3.Connection, as_of: str) -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, body_part, severity, started_at, status, notes
+              FROM injuries
+             WHERE status IN ('active', 'healing')
+             ORDER BY severity DESC, started_at DESC
+            """
+        ).fetchall()
+    ]
 
 
 def _as_iso_date(value: Any, *, start: str, end: str) -> str | None:
@@ -96,29 +126,114 @@ def _clean_metrics(value: Any) -> dict[str, Any] | None:
 def build_week_coach_context(
     conn: sqlite3.Connection,
     week_start: date,
+    *,
+    question: str = "",
+    today: date | None = None,
 ) -> dict[str, Any]:
-    """Kuratert kontekst for én uke, uten rå GPS/FIT eller matvarelogg."""
+    """Kuratert kontekst for én uke, uten rå GPS/FIT eller matvarelogg.
+
+    Gir modellen eksplisitt tidsforankring (dagens dato, valgt ukes datoer med
+    norske ukedagsnavn, ISO-ukenummer og om uken er fortid/nåtid/fremtid), aktiv
+    blokk/fase med uke-i-blokk, ukens planlagte og gjennomførte økter, aktive
+    skader med deterministiske begrensninger, og en liten coaching-kjerne med
+    relevante temamoduler. Modellen skal aldri måtte spørre om dato.
+    """
+    today = today or date.today()
     start, end = _week_bounds(week_start)
-    week = build_week_overview(conn, date.fromisoformat(start))
-    block_payload = build_block_payload(conn, date.fromisoformat(start))
+    monday = date.fromisoformat(start)
+    week = build_week_overview(conn, monday)
+    block_payload = build_block_payload(conn, monday)
     block = block_payload["block"]
+    block_context = week.get("block_context")
+
+    # Syv navngitte dager med planlagte og gjennomførte økter, slik at modellen
+    # kan mappe en ukedag rett til en dato uten å gjette.
+    days: list[dict[str, Any]] = []
+    for day in week["days"]:
+        day_date = date.fromisoformat(day["date"])
+        days.append({
+            "date": day["date"],
+            "weekday": _WEEKDAY_NAMES_NO[day_date.weekday()],
+            "status": day["status"],
+            "is_today": day["date"] == today.isoformat(),
+            "planned_sessions": day.get("planned_sessions", []),
+            "completed_workouts": [
+                {
+                    "type": workout.get("type"),
+                    "duration_sec": workout.get("duration_sec"),
+                    "distance_m": workout.get("distance_m"),
+                    "avg_hr": workout.get("avg_hr"),
+                    "rpe": workout.get("rpe"),
+                }
+                for workout in day.get("workouts", [])
+            ],
+        })
+
+    injuries = _active_injuries(conn, today.isoformat())
+    ruling = running_ruling(injuries)
+    phase = block.get("phase")
+    guidance = phase_guidance(phase)
+    constraints = {
+        "running": {
+            "allowed": ruling.allow,
+            "reason": ruling.reason,
+            "cross_training_alternative": ruling.alternative,
+        },
+        "phase": {
+            "phase": guidance.phase,
+            "focus": guidance.focus,
+            "run_intensity_cap_zone": guidance.run_intensity_cap_zone,
+            "should_recommend_run_z3": guidance.should_recommend_run_z3,
+            "strength_modulation": guidance.strength_modulation,
+            "volume_ramp_pct_per_week_max": guidance.volume_ramp_pct_per_week_max,
+            "notes": guidance.notes,
+        },
+    }
+
+    # Temavalg for kunnskapsmoduler: planlegging er alltid relevant på ukeflaten;
+    # styrke/løping avledes fra spørsmålet og ukens faktiske innhold.
+    week_text = " ".join(
+        str(session.get("type") or "") + " " + str(session.get("description") or "")
+        for day in week["days"]
+        for session in day.get("planned_sessions", [])
+    )
+    include_strength, include_running = topic_flags_from_text(question, week_text)
+    coaching_policy = select_knowledge(
+        surface="week",
+        include_strength=include_strength,
+        include_running=include_running,
+        include_planning=True,
+    )
+
     return {
         "scope": {
+            "today": today.isoformat(),
             "week_start": start,
             "week_end": end,
+            "iso_week": monday.isocalendar().week,
+            "relation_to_today": _week_relation(monday, today),
             "source": "plan_and_automatic_summaries",
         },
+        "days": days,
         "week": week,
         "block": {
             "name": block["name"],
             "phase": block["phase"],
             "goal": block.get("goal"),
             "is_example": block["is_example"],
+            "week_number": block_context.get("week_number") if block_context else None,
+            "total_weeks": block_context.get("total_weeks") if block_context else None,
+            "focus": block_context.get("focus") if block_context else None,
         },
+        "active_injuries": injuries,
+        "deterministic_constraints": constraints,
+        "coaching_policy": coaching_policy,
         "proposal_contract": {
             "writes_are_not_automatic": True,
             "allowed_actions": sorted(VALID_ACTIONS),
             "only_selected_week": True,
+            "can_propose_hevy_routines": True,
+            "hevy_created_only_after_confirmation": True,
         },
     }
 

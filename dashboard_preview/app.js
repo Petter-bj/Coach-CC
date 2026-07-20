@@ -26,10 +26,7 @@ const weekCoachReply = document.querySelector("[data-week-coach-reply]");
 const weekCoachAnswer = document.querySelector("[data-week-coach-answer]");
 const weekProposal = document.querySelector("[data-week-proposal]");
 const weekProposalOperations = document.querySelector("[data-week-proposal-operations]");
-const hevyRoutineProposal = document.querySelector("[data-hevy-routine-proposal]");
-const hevyRoutineTitle = document.querySelector("[data-hevy-routine-title]");
-const hevyRoutineNotes = document.querySelector("[data-hevy-routine-notes]");
-const hevyRoutineExercises = document.querySelector("[data-hevy-routine-exercises]");
+const hevyRoutineProposals = document.querySelector("[data-hevy-routine-proposals]");
 const weekBlockContext = document.querySelector("[data-week-block-context]");
 const blockChatForm = document.querySelector("#block-chat-form");
 const blockChatMessage = document.querySelector("#block-chat-message");
@@ -47,7 +44,8 @@ let currentToday;
 let displayedWeekStart;
 let currentInjuryProposal;
 let currentWeekProposal;
-let currentHevyRoutineProposal;
+const currentHevyProposals = new Map();
+let hevyProposalKeySeq = 0;
 let currentBlockProposal;
 const coachHistory = [];
 const weekCoachHistory = [];
@@ -1414,14 +1412,60 @@ function hevySetSummary(sets) {
   return visible.map((set) => `${set.reps}${set.weight_kg == null ? "" : ` @ ${number.format(set.weight_kg)} kg`}`).join(" · ");
 }
 
-function renderHevyRoutineProposal(proposal) {
-  const routine = proposal?.routine;
-  if (!hevyRoutineProposal || !hevyRoutineExercises || !routine?.title || !Array.isArray(routine.exercises)) return;
-  currentHevyRoutineProposal = proposal;
-  hevyRoutineTitle.textContent = routine.title;
-  hevyRoutineNotes.textContent = routine.notes || "Malen opprettes først når du godkjenner den.";
-  hevyRoutineExercises.replaceChildren();
-  routine.exercises.forEach((exercise) => {
+function hevyProposalDateLabel(proposal) {
+  const dayMonth = proposal.suggested_date
+    ? new Intl.DateTimeFormat("nb-NO", { day: "numeric", month: "short" }).format(new Date(`${proposal.suggested_date}T12:00:00`))
+    : null;
+  const weekday = proposal.weekday
+    ? proposal.weekday.charAt(0).toUpperCase() + proposal.weekday.slice(1)
+    : null;
+  return [weekday, dayMonth].filter(Boolean).join(" · ") || null;
+}
+
+function buildHevyProposalCard(proposal, key) {
+  const routine = proposal.routine;
+  const card = document.createElement("section");
+  card.className = "hevy-routine-proposal";
+  card.dataset.hevyProposalCard = key;
+
+  const header = document.createElement("div");
+  header.className = "hevy-routine-header";
+  const heading = document.createElement("div");
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow pink";
+  eyebrow.textContent = "HEVY-MAL · FORSLAG";
+  const title = document.createElement("h3");
+  title.textContent = routine.title;
+  heading.append(eyebrow, title);
+  const dateLabel = hevyProposalDateLabel(proposal);
+  // Hensikten kan gjenta ukedagen (spec-format «Tittel · tirsdag»); da dropper
+  // vi den duplikate ukedagen så dato-merket ikke leser dobbelt.
+  let purposeText = proposal.purpose || "";
+  if (purposeText && proposal.weekday) {
+    purposeText = purposeText
+      .replace(new RegExp(`\\s*·?\\s*\\b${proposal.weekday}\\b`, "i"), "")
+      .trim();
+  }
+  if (dateLabel || purposeText) {
+    const meta = document.createElement("p");
+    meta.className = "hevy-routine-meta";
+    meta.textContent = [dateLabel, purposeText].filter(Boolean).join(" · ");
+    heading.append(meta);
+  }
+  if (routine.notes) {
+    const notes = document.createElement("p");
+    notes.textContent = routine.notes;
+    heading.append(notes);
+  }
+  const status = document.createElement("span");
+  status.className = "hevy-routine-status";
+  status.textContent = "Venter på deg";
+  header.append(heading, status);
+  card.append(header);
+
+  const exercises = document.createElement("div");
+  exercises.className = "hevy-routine-exercises";
+  (routine.exercises || []).forEach((exercise) => {
     const row = document.createElement("article");
     row.className = "hevy-routine-exercise";
     const name = document.createElement("strong");
@@ -1429,15 +1473,53 @@ function renderHevyRoutineProposal(proposal) {
     const detail = document.createElement("p");
     detail.textContent = `${hevySetSummary(exercise.sets)}${exercise.rest_seconds ? ` · ${exercise.rest_seconds} sek pause` : ""}`;
     row.append(name, detail);
-    hevyRoutineExercises.append(row);
+    exercises.append(row);
   });
-  hevyRoutineProposal.hidden = false;
+  card.append(exercises);
+
+  const actions = document.createElement("div");
+  actions.className = "week-proposal-actions";
+  const discard = document.createElement("button");
+  discard.type = "button";
+  discard.className = "secondary-action";
+  discard.dataset.hevyProposalDiscard = key;
+  discard.textContent = "Forkast";
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "primary-action";
+  apply.dataset.hevyProposalApply = key;
+  apply.textContent = "Opprett i Hevy";
+  actions.append(discard, apply);
+  card.append(actions);
+  return card;
 }
 
-function clearHevyRoutineProposal() {
-  currentHevyRoutineProposal = undefined;
-  if (hevyRoutineProposal) hevyRoutineProposal.hidden = true;
-  if (hevyRoutineExercises) hevyRoutineExercises.replaceChildren();
+function renderHevyRoutineProposals(proposals) {
+  if (!hevyRoutineProposals) return;
+  const valid = (Array.isArray(proposals) ? proposals : [proposals]).filter(
+    (proposal) => proposal?.routine?.title && Array.isArray(proposal.routine.exercises),
+  );
+  if (!valid.length) return;
+  valid.forEach((proposal) => {
+    const key = `hevy-${hevyProposalKeySeq += 1}`;
+    currentHevyProposals.set(key, proposal);
+    hevyRoutineProposals.append(buildHevyProposalCard(proposal, key));
+  });
+  hevyRoutineProposals.hidden = false;
+}
+
+function removeHevyProposalCard(key) {
+  currentHevyProposals.delete(key);
+  hevyRoutineProposals?.querySelector(`[data-hevy-proposal-card="${key}"]`)?.remove();
+  if (hevyRoutineProposals && !currentHevyProposals.size) hevyRoutineProposals.hidden = true;
+}
+
+function clearHevyRoutineProposals() {
+  currentHevyProposals.clear();
+  if (hevyRoutineProposals) {
+    hevyRoutineProposals.replaceChildren();
+    hevyRoutineProposals.hidden = true;
+  }
 }
 
 function previewWeekCoachReply(question) {
@@ -1445,23 +1527,37 @@ function previewWeekCoachReply(question) {
   const wantsChange = /\b(flytt|endre|bytt|kutt|legg\s+til|droppe|dropp)\b/i.test(question);
   const weekStart = displayedWeekStart || "2026-07-13";
   if (wantsHevy) {
+    // Nevner meldingen to ukedager (f.eks. «tirsdag og fredag»), viser previewet
+    // to forslag med hver sin dato i den valgte uken.
+    const namedDays = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"]
+      .map((name, offset) => ({ name, offset }))
+      .filter(({ name }) => new RegExp(`\\b${name}\\b`, "i").test(question));
+    const fallback = [{ name: "tirsdag", offset: 1 }];
+    const targets = namedDays.length ? namedDays.slice(0, 4) : fallback;
+    const routineFor = (label) => ({
+      title: `Fullkropp ${label}`,
+      purpose: null,
+      exercises: [
+        { exercise: "Barbell Squat", rest_seconds: 150, sets: [{ type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }] },
+        { exercise: "Barbell Bench Press", rest_seconds: 120, sets: [{ type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }] },
+        { exercise: "Lat Pulldown", rest_seconds: 90, sets: [{ type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }] },
+      ],
+    });
+    const letters = ["A", "B", "C", "D"];
     return {
-      answer: "Her er en konkret Hevy-mal for uken. Se øvelsene og settene før du oppretter den — i previewet sendes ingenting til Hevy.",
+      answer: targets.length > 1
+        ? `Her er ${targets.length} fullkropp-maler — én per dag du nevnte. Se øvelsene før du oppretter dem. I previewet sendes ingenting til Hevy; på VPS-en opprettes hver mal først når du bekrefter akkurat den.`
+        : "Her er en konkret Hevy-mal for uken. Se øvelsene og settene før du oppretter den — i previewet sendes ingenting til Hevy.",
       model: "Preview",
       operations: [],
-      hevy_proposal: {
+      hevy_proposals: targets.map(({ name, offset }, index) => ({
         id: null,
         status: "pending",
-        routine: {
-          title: "Fullkropp · grunnstyrke",
-          notes: "To økter denne uken med kontrollert progresjon.",
-          exercises: [
-            { exercise: "Barbell Squat", rest_seconds: 150, sets: [{ type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }, { type: "normal", weight_kg: 60, reps: 6 }] },
-            { exercise: "Barbell Bench Press", rest_seconds: 120, sets: [{ type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }, { type: "normal", weight_kg: 50, reps: 8 }] },
-            { exercise: "Lat Pulldown", rest_seconds: 90, sets: [{ type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }, { type: "normal", weight_kg: 45, reps: 10 }] },
-          ],
-        },
-      },
+        suggested_date: addDays(weekStart, offset),
+        weekday: name,
+        purpose: `Fullkropp ${letters[index]} · ${name}`,
+        routine: routineFor(letters[index]),
+      })),
     };
   }
   if (!wantsChange) {
@@ -1518,7 +1614,7 @@ document.querySelectorAll("[data-week-nav]").forEach((button) => {
     const base = displayedWeekStart || currentToday?.date || isoDate(new Date());
     const movement = button.dataset.weekNav;
     clearWeekProposal();
-    clearHevyRoutineProposal();
+    clearHevyRoutineProposals();
     if (weekCoachReply) weekCoachReply.hidden = true;
     if (movement === "previous") loadWeek(addDays(base, -7));
     else if (movement === "next") loadWeek(addDays(base, 7));
@@ -1538,7 +1634,7 @@ document.addEventListener("click", (event) => {
   const weekNavigation = document.querySelector('[data-view="Uke"]');
   if (weekNavigation) setActiveView(weekNavigation);
   clearWeekProposal();
-  clearHevyRoutineProposal();
+  clearHevyRoutineProposals();
   if (weekCoachReply) weekCoachReply.hidden = true;
   showPage("Uke", opener.dataset.blockOpenWeek);
 });
@@ -1679,7 +1775,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekChatButton.textContent = "Tenker …";
   }
   clearWeekProposal();
-  clearHevyRoutineProposal();
+  clearHevyRoutineProposals();
   try {
     const weekStart = displayedWeekStart || startOfWeek(currentToday?.date || isoDate(new Date()));
     const response = await fetch(`/api/weeks/${weekStart}/coach`, {
@@ -1696,7 +1792,9 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
     if (weekCoachHistory.length > 8) weekCoachHistory.splice(0, weekCoachHistory.length - 8);
     if (payload.proposal) renderWeekProposal(payload.proposal);
-    if (payload.hevy_proposal) renderHevyRoutineProposal(payload.hevy_proposal);
+    // Ny liste-form med bakoverkompatibelt enkelt-felt.
+    const proposals = payload.hevy_proposals || (payload.hevy_proposal ? [payload.hevy_proposal] : []);
+    if (proposals.length) renderHevyRoutineProposals(proposals);
     if (weekChatMessage) weekChatMessage.value = "";
   } catch {
     const preview = previewWeekCoachReply(question);
@@ -1704,7 +1802,8 @@ weekChatForm?.addEventListener("submit", async (event) => {
     if (weekCoachReply) weekCoachReply.hidden = false;
     setText("[data-week-coach-model]", `${preview.model} · Ingen endring er gjort`);
     if (preview.operations.length) renderWeekProposal({ id: null, operations: preview.operations, status: "pending" });
-    if (preview.hevy_proposal) renderHevyRoutineProposal(preview.hevy_proposal);
+    const previewProposals = preview.hevy_proposals || (preview.hevy_proposal ? [preview.hevy_proposal] : []);
+    if (previewProposals.length) renderHevyRoutineProposals(previewProposals);
     if (weekChatMessage) weekChatMessage.value = "";
   } finally {
     if (weekChatButton) {
@@ -1764,55 +1863,60 @@ document.querySelector("[data-week-proposal-discard]")?.addEventListener("click"
   }
 });
 
-document.querySelector("[data-hevy-routine-apply]")?.addEventListener("click", async () => {
-  if (!currentHevyRoutineProposal) return;
-  const button = document.querySelector("[data-hevy-routine-apply]");
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Oppretter …";
-  }
-  try {
-    if (!Number.isInteger(currentHevyRoutineProposal.id)) {
-      clearHevyRoutineProposal();
-      showToast("Malen er opprettet i previewet. På VPS-en sendes den til Hevy her.");
-      return;
-    }
-    const response = await fetch(`/api/hevy-routine-proposals/${currentHevyRoutineProposal.id}/apply`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.detail || "Kunne ikke opprette Hevy-malen.");
-    }
-    clearHevyRoutineProposal();
-    showToast("Hevy-malen er opprettet.");
-  } catch (error) {
-    showToast(error?.message || "Kunne ikke opprette Hevy-malen. Ingenting er endret i Hevy.");
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = "Opprett i Hevy";
-    }
-  }
-});
+// Flere Hevy-forslag kan vises samtidig, hvert med egne knapper. Vi delegerer
+// klikk fra containeren slik at bare den valgte malen opprettes/forkastes.
+hevyRoutineProposals?.addEventListener("click", async (event) => {
+  const applyButton = event.target.closest("[data-hevy-proposal-apply]");
+  const discardButton = event.target.closest("[data-hevy-proposal-discard]");
 
-document.querySelector("[data-hevy-routine-discard]")?.addEventListener("click", async () => {
-  const proposal = currentHevyRoutineProposal;
-  clearHevyRoutineProposal();
-  if (!proposal || !Number.isInteger(proposal.id)) {
-    showToast("Hevy-forslaget er forkastet.");
+  if (applyButton) {
+    const key = applyButton.dataset.hevyProposalApply;
+    const proposal = currentHevyProposals.get(key);
+    if (!proposal) return;
+    applyButton.disabled = true;
+    applyButton.textContent = "Oppretter …";
+    try {
+      if (!Number.isInteger(proposal.id)) {
+        removeHevyProposalCard(key);
+        showToast("Malen er opprettet i previewet. På VPS-en sendes bare denne malen til Hevy.");
+        return;
+      }
+      const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/apply`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "Kunne ikke opprette Hevy-malen.");
+      }
+      removeHevyProposalCard(key);
+      showToast("Hevy-malen er opprettet.");
+    } catch (error) {
+      applyButton.disabled = false;
+      applyButton.textContent = "Opprett i Hevy";
+      showToast(error?.message || "Kunne ikke opprette Hevy-malen. Ingenting er endret i Hevy.");
+    }
     return;
   }
-  try {
-    const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/discard`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) throw new Error("hevy routine discard failed");
-    showToast("Hevy-forslaget er forkastet.");
-  } catch {
-    showToast("Hevy-forslaget kunne ikke forkastes på serveren. Det er uansett ikke opprettet.");
+
+  if (discardButton) {
+    const key = discardButton.dataset.hevyProposalDiscard;
+    const proposal = currentHevyProposals.get(key);
+    removeHevyProposalCard(key);
+    if (!proposal || !Number.isInteger(proposal.id)) {
+      showToast("Hevy-forslaget er forkastet.");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/discard`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error("hevy routine discard failed");
+      showToast("Hevy-forslaget er forkastet.");
+    } catch {
+      showToast("Hevy-forslaget kunne ikke forkastes på serveren. Det er uansett ikke opprettet.");
+    }
   }
 });
 

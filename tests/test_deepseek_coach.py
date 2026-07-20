@@ -193,6 +193,47 @@ def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
     }
 
 
+def test_week_coach_parses_multiple_hevy_routines() -> None:
+    """Den nye liste-formen gir flere mal-kandidater i ett svar."""
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({
+                "answer": "To fullkropp-maler, tirsdag og fredag.",
+                "operations": [],
+                "hevy_routines": [
+                    {
+                        "title": "Fullkropp A",
+                        "purpose": "Fullkropp A · tirsdag",
+                        "date": "2026-07-21",
+                        "exercises": [{"exercise": "Barbell Squat", "sets": [{"type": "normal", "reps": 6}]}],
+                    },
+                    {
+                        "title": "Fullkropp B",
+                        "weekday": "fredag",
+                        "exercises": [{"exercise": "Barbell Bench Press", "sets": [{"type": "normal", "reps": 8}]}],
+                    },
+                ],
+            })}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        reply = ask_deepseek_week_coach(
+            "Lag Hevy-maler for fullkropp tirsdag og fredag",
+            {"scope": {"week_start": "2026-07-20"}},
+            api_key="test-key",
+            http_client=client,
+        )
+    finally:
+        client.close()
+
+    assert len(reply.hevy_routines) == 2
+    assert [routine["title"] for routine in reply.hevy_routines] == ["Fullkropp A", "Fullkropp B"]
+    # Enkelt-feltet er ikke satt når modellen bruker liste-formen.
+    assert reply.hevy_routine is None
+
+
 def test_block_coach_parses_a_structured_candidate_without_writing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -76,16 +76,21 @@ class CoachReply:
 
 @dataclass(frozen=True)
 class WeeklyCoachReply:
-    """Svar for ukecoachen, med et valgfritt forslag som aldri skrives direkte.
+    """Svar for ukecoachen, med valgfrie forslag som aldri skrives direkte.
 
-    ``operations`` og ``hevy_routine`` er bare kandidatdata. API-laget
+    ``operations`` og ``hevy_routines`` er bare kandidatdata. API-laget
     validerer dem, lagrer dem som forslag og krever et separat, synlig
-    brukerklikk før enten planen eller en Hevy-mal kan endres.
+    brukerklikk før enten planen eller en Hevy-mal kan opprettes.
+
+    ``hevy_routines`` er den gjeldende liste-formen (flere maler i ett svar).
+    ``hevy_routine`` beholdes som bakoverkompatibelt enkelt-felt: hvis bare det
+    er satt, folder API-laget det inn i listen.
     """
 
     answer: str
     model: str
     operations: list[dict[str, Any]]
+    hevy_routines: list[dict[str, Any]] = field(default_factory=list)
     hevy_routine: dict[str, Any] | None = None
 
 
@@ -249,12 +254,26 @@ def ask_deepseek_coach(
 
 
 WEEKLY_SYSTEM_PROMPT = """Du er den personlige treningscoachen i Trening, i en
-ukesplan-samtale. Du får bare en kuratert ukeplan og oppsummert, relevant
-treningskontekst. Svar på naturlig norsk, konkret og uten å finne på data.
+ukesplan-samtale. Du får en kuratert ukekontekst med dagens dato, den valgte
+ukens datoer (mandag–søndag med norske ukedagsnavn), aktiv blokk/fase, ukens
+planlagte og gjennomførte økter, aktive skader og deterministiske begrensninger,
+samt en liten coaching-kjerne. Svar på naturlig norsk, konkret og uten å finne
+på data.
 
-Du kan foreslå en endring, men har ikke selv skrivetilgang. En bruker må se og
-uttrykkelig bekrefte et diff-forslag før planen endres. Returner KUN ett gyldig
-JSON-objekt, uten markdown eller tekst rundt, med denne formen:
+Du kjenner alltid dagens dato og hele den valgte ukens datoer fra konteksten.
+Spør derfor ALDRI om hvilken dato det er, eller hvilken uke det gjelder — det
+står i konteksten. Når brukeren nevner en ukedag (f.eks. «tirsdag og fredag»),
+bruk den faktiske datoen for den dagen i den valgte uken.
+
+Du kan foreslå endringer og du KAN foreslå Hevy-maler som systemet oppretter i
+Hevy etter at brukeren bekrefter. Si aldri at du «ikke kan pushe til Hevy». Si i
+stedet at du kan foreslå en mal og opprette den etter bekreftelse. Du har ikke
+selv skrivetilgang: brukeren må se og uttrykkelig bekrefte hvert forslag før noe
+skjer. Påstå aldri at noe allerede er endret, lagret eller opprettet, og si
+aldri at en styrkeøkt er «sendt til Garmin».
+
+Returner KUN ett gyldig JSON-objekt, uten markdown eller tekst rundt, med denne
+formen:
 {
   "answer": "Kort svar direkte til brukeren.",
   "operations": [
@@ -263,30 +282,45 @@ JSON-objekt, uten markdown eller tekst rundt, med denne formen:
     {"action": "replace", "session_id": 123, "type": "easy_run", "description": "...", "target_metrics": {"duration_min": 40}, "reason": "kort grunn"},
     {"action": "add", "date": "YYYY-MM-DD", "type": "strength", "description": "...", "target_metrics": {"duration_min": 30}, "reason": "kort grunn"}
   ],
-  "hevy_routine": null eller {
-    "title": "Kort malnavn",
-    "notes": "Valgfri forklaring",
-    "exercises": [
-      {
-        "exercise": "English Hevy exercise title",
-        "rest_seconds": 120,
-        "notes": "valgfritt",
-        "sets": [
-          {"type": "normal", "weight_kg": 60, "reps": 8}
-        ]
-      }
-    ]
-  }
+  "hevy_routines": [
+    {
+      "title": "Fullkropp A",
+      "purpose": "Fullkropp A · tirsdag",
+      "date": "YYYY-MM-DD (dag i valgt uke)",
+      "notes": "Valgfri forklaring",
+      "exercises": [
+        {
+          "exercise": "English Hevy exercise title",
+          "rest_seconds": 120,
+          "notes": "valgfritt",
+          "sets": [
+            {"type": "normal", "weight_kg": 60, "reps": 8}
+          ]
+        }
+      ]
+    }
+  ]
 }
 
-Bruk bare session_id-er som står i konteksten, og bare datoer innen den
-aktuelle uken. Returner alltid "operations": [] når brukeren bare spør et
-spørsmål, når informasjonen ikke er tilstrekkelig, eller når ingen konkret
-planendring bør foreslås. Ikke påstå at noe er endret eller sendt til Garmin.
-Sett bare ``hevy_routine`` når brukeren uttrykkelig ber om en Hevy-mal/rutine.
-Bruk den vanlige engelske tittelen slik den er kjent i Hevys øvelseskatalog,
-og foreslå aldri mer enn 12 øvelser. Dette er bare et forslag som brukeren må
-godkjenne før det kan opprettes i Hevy. Returner ellers ``hevy_routine``: null.
+Bruk bare session_id-er som står i konteksten, og bare datoer innen den valgte
+uken. Returner alltid "operations": [] når brukeren bare spør et spørsmål, når
+informasjonen ikke er tilstrekkelig, eller når ingen konkret planendring bør
+foreslås.
+
+Sett ``hevy_routines`` bare når brukeren uttrykkelig ber om en Hevy-mal/rutine.
+Da lager du ett element per konkret mal brukeren ber om — ber brukeren om maler
+for «tirsdag og fredag», gir du to elementer med hver sin ``date`` for de
+riktige dagene i den valgte uken (maks 4 maler). Ønsker brukeren én felles mal
+for flere dager, kan du levere én mal og forklare i ``answer`` at den brukes
+begge dager. Gi hver mal et tydelig ``title`` og en kort ``purpose`` som
+«Fullkropp A · tirsdag». Bruk den vanlige engelske tittelen slik øvelsen er
+kjent i Hevys øvelseskatalog, og maks 12 øvelser per mal. Hver mal er bare et
+forslag brukeren må bekrefte før det opprettes i Hevy. Returner ellers
+``hevy_routines``: [].
+
+En eventuell planendring for de samme dagene er et separat plan-diff-forslag
+under ``operations`` — den er ikke det samme som å opprette en Hevy-mal.
+
 Ikke gi medisinsk diagnose; anbefal kvalifisert helsehjelp ved akutte, sterke
 eller vedvarende symptomer."""
 
@@ -339,12 +373,23 @@ def ask_deepseek_week_coach(
 
     answer = decoded.get("answer")
     operations = decoded.get("operations")
-    hevy_routine = decoded.get("hevy_routine")
+    raw_routines = decoded.get("hevy_routines")
+    single_routine = decoded.get("hevy_routine")
+    if isinstance(raw_routines, list):
+        hevy_routines = [item for item in raw_routines if isinstance(item, dict)]
+    elif isinstance(raw_routines, dict):
+        hevy_routines = [raw_routines]
+    elif isinstance(single_routine, dict):
+        # Bakoverkompatibelt: en modell som fortsatt bruker enkelt-feltet.
+        hevy_routines = [single_routine]
+    else:
+        hevy_routines = []
     return WeeklyCoachReply(
         answer=answer.strip() if isinstance(answer, str) and answer.strip() else "Jeg fikk ikke formulert et tydelig svar. Prøv igjen.",
         model=selected_model,
         operations=[item for item in operations if isinstance(item, dict)] if isinstance(operations, list) else [],
-        hevy_routine=hevy_routine if isinstance(hevy_routine, dict) else None,
+        hevy_routines=hevy_routines,
+        hevy_routine=single_routine if isinstance(single_routine, dict) else None,
     )
 
 
