@@ -17,6 +17,7 @@ from src.api.blocks import build_block_payload
 from src.api.week import build_week_overview
 from src.coaching.knowledge import select_knowledge, topic_flags_from_text
 from src.coaching.philosophy import phase_guidance, running_ruling
+from src.coaching.strength_context import build_strength_context
 
 
 VALID_ACTIONS = {"move", "skip", "replace", "add"}
@@ -190,14 +191,10 @@ def build_week_coach_context(
         },
     }
 
-    # Temavalg for kunnskapsmoduler: planlegging er alltid relevant på ukeflaten;
-    # styrke/løping avledes fra spørsmålet og ukens faktiske innhold.
-    week_text = " ".join(
-        str(session.get("type") or "") + " " + str(session.get("description") or "")
-        for day in week["days"]
-        for session in day.get("planned_sessions", [])
-    )
-    include_strength, include_running = topic_flags_from_text(question, week_text)
+    # Temavalg følger spørsmålet, ikke bare hva som tilfeldigvis finnes i den
+    # valgte uka. En ren løpeforespørsel skal ikke få hele styrkebiblioteket
+    # bare fordi uken også inneholder en styrkedag.
+    include_strength, include_running = topic_flags_from_text(question)
     coaching_policy = select_knowledge(
         surface="week",
         include_strength=include_strength,
@@ -224,10 +221,12 @@ def build_week_coach_context(
             "week_number": block_context.get("week_number") if block_context else None,
             "total_weeks": block_context.get("total_weeks") if block_context else None,
             "focus": block_context.get("focus") if block_context else None,
+            "strength_structure": block.get("strength_structure"),
         },
         "active_injuries": injuries,
         "deterministic_constraints": constraints,
         "coaching_policy": coaching_policy,
+        **({"strength_context": build_strength_context(conn)} if include_strength else {}),
         "proposal_contract": {
             "writes_are_not_automatic": True,
             "allowed_actions": sorted(VALID_ACTIONS),

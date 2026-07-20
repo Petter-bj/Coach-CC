@@ -25,6 +25,7 @@ STRENGTH_MODULES = (
     "strength/progression.md",
     "strength/readiness_and_deload.md",
     "strength/exercise_selection.md",
+    "strength/program_design.md",
 )
 RUNNING_MODULES = (
     "running/zones_and_distribution.md",

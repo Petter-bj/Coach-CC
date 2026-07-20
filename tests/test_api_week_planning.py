@@ -250,11 +250,32 @@ def test_week_coach_context_includes_knowledge_without_leaking_claude_md() -> No
     # Styrkespørsmål på ukeflaten → planlegging + styrke er med.
     assert "planning/phases_and_priority.md" in module_names
     assert any(name.startswith("strength/") for name in module_names)
+    assert "strength_context" in context
+    assert context["strength_context"]["initialized"] is False
+    assert context["block"]["strength_structure"]["sessions_per_week"] == 3
 
     # Ingen operative CLI-/MCP-/Claude Code-instrukser skal lekke inn.
     blob = json.dumps(context, ensure_ascii=False).lower()
     for forbidden in ("uv run", "src.cli", "hevy mcp", "launchd", "claude code", "mcp-verktøy"):
         assert forbidden not in blob
+
+
+def test_week_coach_running_question_excludes_strength_context() -> None:
+    """En løpeforespørsel får løpepolicy, ikke hele styrkeprofilen."""
+    conn = _db(":memory:")
+    try:
+        context = build_week_coach_context(
+            conn, date(2026, 7, 20), question="Bør jeg løpe terskel eller rolig i morgen?",
+        )
+    finally:
+        conn.close()
+
+    module_names = {
+        module["module"] for module in context["coaching_policy"]["modules"]
+    }
+    assert "strength_context" not in context
+    assert not any(name.startswith("strength/") for name in module_names)
+    assert "running/zones_and_distribution.md" in module_names
 
 
 def test_weekly_coach_creates_two_hevy_routines_for_two_days(tmp_path) -> None:

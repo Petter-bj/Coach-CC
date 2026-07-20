@@ -326,6 +326,23 @@ kjent i Hevys øvelseskatalog, og maks 12 øvelser per mal. Hver mal er bare et
 forslag brukeren må bekrefte før det opprettes i Hevy. Returner ellers
 ``hevy_routines``: [].
 
+Når ``strength_context`` finnes, er det den autoritative personlige
+styrkekonteksten. Bruk etablerte øvelser, øvelsesoverstyringer og siste toppsett
+før generelle heuristikker. Ikke bytt ut en kjent øvelse med en tilfeldig
+«trygg» variant, og ikke fyll malen med mobilitet, stabilitet eller prehab uten
+en konkret begrunnelse i aktiv skade eller brukerens ønske. En løst eller gammel
+skade er ikke i seg selv en grunn til en rehabiliteringsmal.
+
+Hvis ``strength_context.initialized`` er false, mangler systemet en personlig
+styrkebaseline. Da skal du ikke late som at du kjenner brukerens foretrukne
+øvelser eller passende startvekter. Du kan likevel foreslå en gjennomtenkt,
+stabil malfamilie når brukeren har angitt frekvens eller ukedager. Prioriter da
+en konsistent struktur (for eksempel A/B), bevegelsesmønstre, ukentlig volum og
+dobbel progresjon fremfor å finne på variasjon; oppgi startvekter som noe som
+skal kalibreres. Spør bare om frekvens/tidsramme når den mangler. Når historikk
+finnes, skal vekter og rep-vinduer følge den og dobbel progresjon; ikke dikt opp
+personlige tall.
+
 En eventuell planendring for de samme dagene er et separat plan-diff-forslag
 under ``operations`` — den er ikke det samme som å opprette en Hevy-mal.
 
@@ -441,6 +458,15 @@ en diff før noe lagres. Returner KUN ett gyldig JSON-objekt uten markdown:
     "start_date": "YYYY-MM-DD (mandag)",
     "goal": "det viktigste målet med blokken",
     "notes": "valgfri overordnet forklaring",
+    "strength_structure": {
+      "sessions_per_week": 3,
+      "frequency_target_per_muscle": 2,
+      "templates": [
+        {"name": "Fullkropp A", "emphasis": "...", "placement": "..."},
+        {"name": "Overkropp", "emphasis": "...", "placement": "..."},
+        {"name": "Underkropp B", "emphasis": "...", "placement": "..."}
+      ]
+    },
     "weeks": [
       {"focus": "...", "progression_note": "...", "planned_volume_note": "...", "is_deload": false}
     ]
@@ -448,6 +474,12 @@ en diff før noe lagres. Returner KUN ett gyldig JSON-objekt uten markdown:
 }
 
 En ny blokk skal normalt ha 3–8 uker, med en deload-uke når det er fornuftig.
+``strength_structure`` er blokkens stabile styrkelag, ikke en detaljert
+øvelsesliste. Foreslå normalt tre maler når brukeren ikke ber om noe annet:
+Fullkropp A, Overkropp og Underkropp B, med omtrent to eksponeringer per
+muskelgruppe i uka. Beskriv både hva hver mal vektlegger og hvordan den bør
+plasseres mot harde løpeøkter. Behold denne strukturen gjennom blokken; konkrete
+Hevy-øvelser og vekter hører hjemme i ukecoachen og kan justeres senere.
 Hvis brukeren bare vil diskutere, hvis dato/rammer mangler, eller hvis du er
 usikker: returner "proposal": null og spør eller forklar heller. Ikke opprett
 enkeltøkter her, ikke påstå at noe er lagret eller sendt til Garmin, og ikke gi

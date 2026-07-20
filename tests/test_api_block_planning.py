@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 
 import httpx
@@ -89,16 +90,24 @@ def test_block_coach_proposes_then_creates_only_after_confirmation(tmp_path) -> 
 
     conn = _db(path)
     try:
-        block = conn.execute("SELECT name, start_date, end_date FROM training_blocks").fetchone()
+        block = conn.execute(
+            "SELECT name, start_date, end_date, strength_structure_json FROM training_blocks"
+        ).fetchone()
         week_count = conn.execute("SELECT COUNT(*) AS n FROM training_block_weeks").fetchone()["n"]
         session_count = conn.execute("SELECT COUNT(*) AS n FROM planned_sessions").fetchone()["n"]
     finally:
         conn.close()
-    assert dict(block) == {
+    stored_block = dict(block)
+    strength_structure = json.loads(stored_block.pop("strength_structure_json"))
+    assert stored_block == {
         "name": "6 uker · Stabil løpsrytme",
         "start_date": "2026-07-20",
         "end_date": "2026-08-30",
     }
+    assert strength_structure["sessions_per_week"] == 3
+    assert [item["name"] for item in strength_structure["templates"]] == [
+        "Fullkropp A", "Overkropp", "Underkropp B",
+    ]
     assert week_count == 6
     assert session_count == 0
 

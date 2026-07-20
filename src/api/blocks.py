@@ -8,9 +8,12 @@ belastningsregnskap.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, timedelta
 from typing import Any
+
+from src.coaching.strength_structure import default_strength_structure, normalize_strength_structure
 
 
 EXAMPLE_WEEKS = (
@@ -91,6 +94,7 @@ def _example_block(as_of: date) -> dict[str, Any]:
         "end_date": (start + timedelta(days=6 * 7 - 1)).isoformat(),
         "goal": "Bygge stabil løpstoleranse og en rytme som tåler mer planlagt kvalitet senere.",
         "notes": "Eksempelblokk — ikke aktiv og ikke skrevet til planen din.",
+        "strength_structure": default_strength_structure(),
         "principles": [
             "Én kontrollert kvalitetsøkt når signalene og kroppen tillater det.",
             "Rolige økter er hovedvolumet; endre bare én belastningsvariabel av gangen.",
@@ -149,6 +153,12 @@ def _real_block(conn: sqlite3.Connection, row: sqlite3.Row, as_of: date) -> dict
         cursor += timedelta(days=7)
         number += 1
 
+    try:
+        stored_structure = json.loads(row["strength_structure_json"])
+    except (KeyError, TypeError, ValueError):
+        stored_structure = None
+    strength_structure = normalize_strength_structure(stored_structure) or default_strength_structure()
+
     return {
         "id": block_id,
         "source": "plan",
@@ -160,6 +170,7 @@ def _real_block(conn: sqlite3.Connection, row: sqlite3.Row, as_of: date) -> dict
         "end_date": row["end_date"],
         "goal": row["goal_title"],
         "notes": row["notes"],
+        "strength_structure": strength_structure,
         "principles": [],
         "weeks": weeks,
     }

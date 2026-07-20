@@ -8,6 +8,7 @@ from typing import Any
 
 from src.api.today import build_today_payload
 from src.coaching.knowledge import select_knowledge, topic_flags_from_text
+from src.coaching.strength_context import build_strength_context
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -106,10 +107,7 @@ def build_coach_context(
 
     # Coaching-kjerne + relevante temamoduler. På dag-flaten er styrke/løping/
     # skade avledet fra spørsmålet; planlegging hører til uke-/blokk-flatene.
-    include_strength, include_running = topic_flags_from_text(
-        question,
-        " ".join(str(w.get("type") or "") for w in recent_workouts),
-    )
+    include_strength, include_running = topic_flags_from_text(question)
     coaching_policy = select_knowledge(
         surface="today",
         include_strength=include_strength,
@@ -133,4 +131,5 @@ def build_coach_context(
         "latest_nutrition_summary": dict(nutrition) if nutrition else None,
         "latest_weight_summary": dict(weight) if weight else None,
         "coaching_policy": coaching_policy,
+        **({"strength_context": build_strength_context(conn)} if include_strength else {}),
     }

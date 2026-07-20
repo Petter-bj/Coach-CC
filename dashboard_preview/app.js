@@ -822,7 +822,15 @@ function renderBlock(payload) {
   setText("[data-block-goal]", block.goal || "Ingen tydelig målsetting er satt for blokken ennå.");
   setText("[data-block-note]", block.notes || "Denne blokken styrer ukene under og kan justeres når virkeligheten endrer seg.");
   setText("[data-block-length]", blockLength(block.start_date, block.end_date));
-  setText("[data-block-rhythm]", block.is_example ? "3–4 økter" : "Uke for uke");
+  const strengthStructure = block.strength_structure;
+  const strengthSessions = Number(strengthStructure?.sessions_per_week);
+  setText(
+    "[data-block-rhythm]",
+    Number.isFinite(strengthSessions)
+      ? `${strengthSessions} styrkeøkter`
+      : block.is_example ? "3–4 økter" : "Uke for uke",
+  );
+  renderBlockStrengthStructure(strengthStructure);
   const current = block.weeks?.find((week) => week.status === "current") || block.weeks?.[0];
   setText("[data-block-next]", current ? `Uke ${current.number}` : "Ikke satt");
 
@@ -868,6 +876,31 @@ function renderBlock(payload) {
     button.append(arrow);
     card.append(numberLine, title, copy, summary, button);
     grid.append(card);
+  });
+}
+
+function renderBlockStrengthStructure(structure) {
+  const list = document.querySelector("[data-block-strength-templates]");
+  if (!list || !Array.isArray(structure?.templates)) return;
+  const sessions = Number(structure.sessions_per_week);
+  const frequency = Number(structure.frequency_target_per_muscle);
+  setText(
+    "[data-block-strength-summary]",
+    `${Number.isFinite(sessions) ? sessions : structure.templates.length} økter · ca. ${Number.isFinite(frequency) ? frequency : 2} eksponeringer per muskelgruppe`,
+  );
+  list.replaceChildren();
+  structure.templates.forEach((template, index) => {
+    const card = document.createElement("article");
+    const number = document.createElement("span");
+    number.textContent = `MAL ${index + 1}`;
+    const title = document.createElement("strong");
+    title.textContent = template.name || `Styrkeøkt ${index + 1}`;
+    const emphasis = document.createElement("p");
+    emphasis.textContent = template.emphasis || "Vektlegging bestemmes sammen med coachen.";
+    const placement = document.createElement("small");
+    placement.textContent = template.placement || "Plasseres med rom rundt hard løping.";
+    card.append(number, title, emphasis, placement);
+    list.append(card);
   });
 }
 

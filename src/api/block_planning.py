@@ -9,6 +9,8 @@ from typing import Any
 
 from src.api.blocks import build_block_payload
 from src.coaching.knowledge import select_knowledge, topic_flags_from_text
+from src.coaching.strength_context import build_strength_context
+from src.coaching.strength_structure import normalize_strength_structure
 
 
 VALID_PHASES = {"base", "build", "peak", "taper", "recovery"}
@@ -56,6 +58,7 @@ def build_block_coach_context(
             """
         ).fetchall()
     ]
+    include_strength, include_running = topic_flags_from_text(question)
     return {
         "as_of": payload["as_of"],
         "current_block": {
@@ -67,6 +70,7 @@ def build_block_coach_context(
             "end_date": block["end_date"],
             "goal": block.get("goal"),
             "notes": block.get("notes"),
+            "strength_structure": block.get("strength_structure"),
             "weeks": [
                 {
                     "number": week["number"],
@@ -82,6 +86,7 @@ def build_block_coach_context(
         # Blokk-flaten får alltid coach-kjerne + planlegging/fase, pluss
         # styrke/løping når spørsmålet berører det.
         "coaching_policy": _block_coaching_policy(question),
+        **({"strength_context": build_strength_context(conn)} if include_strength else {}),
         "proposal_contract": {
             "writes_are_not_automatic": True,
             "creates_individual_sessions": False,
@@ -123,12 +128,14 @@ def validate_block_proposal(
     start = _monday(raw.get("start_date"))
     goal = _text(raw.get("goal"), maximum=600, required=True)
     notes = _text(raw.get("notes"), maximum=1_000) or None
+    strength_structure = normalize_strength_structure(raw.get("strength_structure"))
     raw_weeks = raw.get("weeks")
     if (
         not name
         or phase not in VALID_PHASES
         or start is None
         or not goal
+        or strength_structure is None
         or not isinstance(raw_weeks, list)
         or not MIN_BLOCK_WEEKS <= len(raw_weeks) <= MAX_BLOCK_WEEKS
     ):
@@ -160,6 +167,7 @@ def validate_block_proposal(
         "end_date": end.isoformat(),
         "goal": goal,
         "notes": notes,
+        "strength_structure": strength_structure,
         "weeks": weeks,
     }, target_id)
 
@@ -267,12 +275,14 @@ def apply_block_proposal(conn: sqlite3.Connection, proposal_id: int) -> dict[str
             """
             UPDATE training_blocks
                SET name = ?, phase = ?, start_date = ?, end_date = ?,
-                   primary_goal_id = ?, notes = ?
+                   primary_goal_id = ?, notes = ?, strength_structure_json = ?
              WHERE id = ?
             """,
             (
                 proposal["name"], proposal["phase"], proposal["start_date"], proposal["end_date"],
-                goal_id, proposal.get("notes"), block_id,
+                goal_id, proposal.get("notes"),
+                json.dumps(proposal["strength_structure"], ensure_ascii=False),
+                block_id,
             ),
         )
     elif action == "create":
@@ -289,12 +299,14 @@ def apply_block_proposal(conn: sqlite3.Connection, proposal_id: int) -> dict[str
         goal_id = _goal_id(conn, goal)
         block_id = int(conn.execute(
             """
-            INSERT INTO training_blocks (name, phase, start_date, end_date, primary_goal_id, notes)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO training_blocks (
+                name, phase, start_date, end_date, primary_goal_id, notes, strength_structure_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 proposal["name"], proposal["phase"], proposal["start_date"], proposal["end_date"],
                 goal_id, proposal.get("notes"),
+                json.dumps(proposal["strength_structure"], ensure_ascii=False),
             ),
         ).lastrowid)
     else:
