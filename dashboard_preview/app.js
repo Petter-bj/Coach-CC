@@ -45,6 +45,7 @@ let displayedWeekStart;
 let currentInjuryProposal;
 let currentWeekProposal;
 const currentHevyProposals = new Map();
+const hevyProposalFeedbackHistories = new Map();
 let hevyProposalKeySeq = 0;
 let currentBlockProposal;
 const coachHistory = [];
@@ -1484,13 +1485,54 @@ function buildHevyProposalCard(proposal, key) {
   discard.className = "secondary-action";
   discard.dataset.hevyProposalDiscard = key;
   discard.textContent = "Forkast";
+  const feedback = document.createElement("button");
+  feedback.type = "button";
+  feedback.className = "secondary-action hevy-feedback-trigger";
+  feedback.dataset.hevyProposalFeedbackToggle = key;
+  feedback.textContent = "Spør / juster";
   const apply = document.createElement("button");
   apply.type = "button";
   apply.className = "primary-action";
   apply.dataset.hevyProposalApply = key;
   apply.textContent = "Opprett i Hevy";
-  actions.append(discard, apply);
+  actions.append(discard, feedback, apply);
   card.append(actions);
+
+  const feedbackArea = document.createElement("div");
+  feedbackArea.className = "hevy-feedback";
+  const reply = document.createElement("div");
+  reply.className = "hevy-feedback-reply";
+  reply.dataset.hevyProposalFeedbackReply = key;
+  reply.hidden = true;
+  const replyLabel = document.createElement("p");
+  replyLabel.className = "eyebrow pink";
+  replyLabel.textContent = "COACH";
+  const replyAnswer = document.createElement("p");
+  replyAnswer.dataset.hevyProposalFeedbackAnswer = key;
+  const replyModel = document.createElement("small");
+  replyModel.dataset.hevyProposalFeedbackModel = key;
+  reply.append(replyLabel, replyAnswer, replyModel);
+
+  const form = document.createElement("form");
+  form.className = "hevy-feedback-form";
+  form.dataset.hevyProposalFeedbackForm = key;
+  form.hidden = true;
+  const label = document.createElement("label");
+  label.className = "sr-only";
+  label.htmlFor = `hevy-feedback-${key}`;
+  label.textContent = `Spør om eller juster ${routine.title}`;
+  const input = document.createElement("input");
+  input.id = `hevy-feedback-${key}`;
+  input.name = "feedback";
+  input.type = "text";
+  input.autocomplete = "off";
+  input.placeholder = "Spør om eller juster malen — f.eks. «bytt squat med leg press»";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Send";
+  form.append(label, input, submit);
+  feedbackArea.append(reply, form);
+  card.append(feedbackArea);
   return card;
 }
 
@@ -1503,6 +1545,7 @@ function renderHevyRoutineProposals(proposals) {
   valid.forEach((proposal) => {
     const key = `hevy-${hevyProposalKeySeq += 1}`;
     currentHevyProposals.set(key, proposal);
+    hevyProposalFeedbackHistories.set(key, []);
     hevyRoutineProposals.append(buildHevyProposalCard(proposal, key));
   });
   hevyRoutineProposals.hidden = false;
@@ -1510,16 +1553,58 @@ function renderHevyRoutineProposals(proposals) {
 
 function removeHevyProposalCard(key) {
   currentHevyProposals.delete(key);
+  hevyProposalFeedbackHistories.delete(key);
   hevyRoutineProposals?.querySelector(`[data-hevy-proposal-card="${key}"]`)?.remove();
   if (hevyRoutineProposals && !currentHevyProposals.size) hevyRoutineProposals.hidden = true;
 }
 
 function clearHevyRoutineProposals() {
   currentHevyProposals.clear();
+  hevyProposalFeedbackHistories.clear();
   if (hevyRoutineProposals) {
     hevyRoutineProposals.replaceChildren();
     hevyRoutineProposals.hidden = true;
   }
+}
+
+function renderHevyProposalFeedback(key, answer, model) {
+  const card = hevyRoutineProposals?.querySelector(`[data-hevy-proposal-card="${key}"]`);
+  const reply = card?.querySelector(`[data-hevy-proposal-feedback-reply="${key}"]`);
+  const replyAnswer = card?.querySelector(`[data-hevy-proposal-feedback-answer="${key}"]`);
+  const replyModel = card?.querySelector(`[data-hevy-proposal-feedback-model="${key}"]`);
+  if (!reply || !replyAnswer || !replyModel) return;
+  replyAnswer.textContent = answer;
+  replyModel.textContent = `${model || "V4-Pro"} · Ingen endring er gjort`;
+  reply.hidden = false;
+}
+
+function replaceHevyProposalCard(key, proposal) {
+  const previous = hevyRoutineProposals?.querySelector(`[data-hevy-proposal-card="${key}"]`);
+  if (!previous || !proposal?.routine) return;
+  currentHevyProposals.set(key, proposal);
+  previous.replaceWith(buildHevyProposalCard(proposal, key));
+}
+
+function previewHevyProposalFeedback(proposal, question) {
+  const asksForChange = /\b(bytt|erstatt|endre|kutt|legg\s+til|fjern|mer|mindre)\b/i.test(question);
+  if (!asksForChange) {
+    return {
+      answer: "I previewet kan du stille spørsmål om akkurat denne malen. På VPS-en får coachen hele øktoppsettet som kontekst og svarer uten at noe endres.",
+      model: "Preview",
+      replacement: null,
+    };
+  }
+  const replacement = JSON.parse(JSON.stringify(proposal));
+  replacement.routine.notes = "Preview: justert etter tilbakemeldingen din. Se gjennom før du oppretter malen.";
+  if (/leg\s*press/i.test(question)) {
+    const squat = replacement.routine.exercises.find((exercise) => /squat/i.test(exercise.exercise));
+    if (squat) squat.exercise = "Leg Press";
+  }
+  return {
+    answer: "Her er et oppdatert utkast basert på tilbakemeldingen din. Den opprinnelige preview-malen er erstattet, men ingenting er opprettet i Hevy.",
+    model: "Preview",
+    replacement,
+  };
 }
 
 function previewWeekCoachReply(question) {
@@ -1868,6 +1953,18 @@ document.querySelector("[data-week-proposal-discard]")?.addEventListener("click"
 hevyRoutineProposals?.addEventListener("click", async (event) => {
   const applyButton = event.target.closest("[data-hevy-proposal-apply]");
   const discardButton = event.target.closest("[data-hevy-proposal-discard]");
+  const feedbackButton = event.target.closest("[data-hevy-proposal-feedback-toggle]");
+
+  if (feedbackButton) {
+    const key = feedbackButton.dataset.hevyProposalFeedbackToggle;
+    const card = hevyRoutineProposals.querySelector(`[data-hevy-proposal-card="${key}"]`);
+    const form = card?.querySelector(`[data-hevy-proposal-feedback-form="${key}"]`);
+    if (!form) return;
+    form.hidden = !form.hidden;
+    feedbackButton.textContent = form.hidden ? "Spør / juster" : "Lukk";
+    if (!form.hidden) form.querySelector("input")?.focus();
+    return;
+  }
 
   if (applyButton) {
     const key = applyButton.dataset.hevyProposalApply;
@@ -1916,6 +2013,57 @@ hevyRoutineProposals?.addEventListener("click", async (event) => {
       showToast("Hevy-forslaget er forkastet.");
     } catch {
       showToast("Hevy-forslaget kunne ikke forkastes på serveren. Det er uansett ikke opprettet.");
+    }
+  }
+});
+
+hevyRoutineProposals?.addEventListener("submit", async (event) => {
+  const form = event.target.closest("[data-hevy-proposal-feedback-form]");
+  if (!form) return;
+  event.preventDefault();
+  const key = form.dataset.hevyProposalFeedbackForm;
+  const proposal = currentHevyProposals.get(key);
+  const input = form.querySelector("input");
+  const submit = form.querySelector("button[type=submit]");
+  const question = input?.value.trim();
+  if (!proposal || !question || !submit) return;
+
+  submit.disabled = true;
+  submit.textContent = "Tenker …";
+  try {
+    let payload;
+    if (!Number.isInteger(proposal.id)) {
+      payload = previewHevyProposalFeedback(proposal, question);
+    } else {
+      const history = hevyProposalFeedbackHistories.get(key) || [];
+      const response = await fetch(`/api/hevy-routine-proposals/${proposal.id}/coach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ message: question, history: history.slice(-8) }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Coachen kunne ikke svare om malen.");
+      }
+      payload = await response.json();
+    }
+    if (!payload?.answer) throw new Error("Coachen returnerte ikke et svar.");
+
+    const history = hevyProposalFeedbackHistories.get(key) || [];
+    history.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
+    if (history.length > 8) history.splice(0, history.length - 8);
+    hevyProposalFeedbackHistories.set(key, history);
+
+    if (payload.replacement) replaceHevyProposalCard(key, payload.replacement);
+    renderHevyProposalFeedback(key, payload.answer, payload.model);
+    if (payload.replacement) showToast("Forslaget er oppdatert. Det er fortsatt ikke opprettet i Hevy.");
+    input.value = "";
+  } catch (error) {
+    showToast(error?.message || "Coachen kunne ikke oppdatere malen. Ingenting er endret.");
+  } finally {
+    if (submit.isConnected) {
+      submit.disabled = false;
+      submit.textContent = "Send";
     }
   }
 });

@@ -429,3 +429,196 @@ def test_weekly_coach_requires_confirmation_before_creating_hevy_routine(tmp_pat
     finally:
         conn.close()
     assert dict(row) == {"status": "applied", "hevy_routine_id": "hevy-routine-123"}
+
+
+def test_hevy_proposal_can_be_discussed_without_changing_or_creating_it(tmp_path) -> None:
+    """Et spørsmål om ett kort får rutinen som kontekst, men er aldri en write."""
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    conn.close()
+    seen: dict = {}
+    created: list[dict] = []
+
+    routine = {
+        "title": "Fullkropp A",
+        "notes": "Kontrollert styrke.",
+        "exercises": [{
+            "exercise": "Barbell Squat",
+            "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
+        }],
+    }
+
+    def responder(question: str, context: dict) -> WeeklyCoachReply:
+        if "hevy_proposal_under_discussion" in context:
+            seen["question"] = question
+            seen["context"] = context
+            return WeeklyCoachReply(
+                answer="Tre sett gir nok arbeid uten at denne økta blir unødvendig tung.",
+                model="deepseek-v4-pro",
+                operations=[],
+                hevy_routines=[],
+            )
+        return WeeklyCoachReply(
+            answer="Her er et forslag.",
+            model="deepseek-v4-pro",
+            operations=[],
+            hevy_routine=routine,
+        )
+
+    async def propose_then_ask() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=path,
+                api_token="test-token",
+                weekly_coach_responder=responder,
+                hevy_routine_creator=lambda item: created.append(item) or "hevy-1",
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            proposed = await client.post(
+                "/api/weeks/2026-07-20/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Lag en Hevy-mal for fullkropp"},
+            )
+            proposal_id = proposed.json()["hevy_proposal"]["id"]
+            discussed = await client.post(
+                f"/api/hevy-routine-proposals/{proposal_id}/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Hvorfor er det tre sett?"},
+            )
+        return proposed, discussed
+
+    proposed, discussed = asyncio.run(propose_then_ask())
+
+    assert proposed.status_code == 200
+    assert discussed.status_code == 200
+    assert discussed.json() == {
+        "answer": "Tre sett gir nok arbeid uten at denne økta blir unødvendig tung.",
+        "model": "deepseek-v4-pro",
+        "changes_applied": False,
+        "replacement": None,
+    }
+    assert seen["question"] == "Hvorfor er det tre sett?"
+    assert seen["context"]["hevy_proposal_under_discussion"] == {
+        "routine": routine,
+        "suggested_date": None,
+        "purpose": None,
+        "status": "pending",
+    }
+    assert created == []
+
+    conn = _db(path)
+    try:
+        rows = conn.execute(
+            "SELECT status, routine_json FROM hevy_routine_proposals ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "pending"
+    assert json.loads(rows[0]["routine_json"]) == routine
+
+
+def test_hevy_proposal_adjustment_replaces_draft_and_still_requires_confirmation(tmp_path) -> None:
+    """En justering forkaster originalutkastet, men skriver ikke til Hevy før klikk."""
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    conn.close()
+    created: list[dict] = []
+
+    original = {
+        "title": "Fullkropp A",
+        "notes": None,
+        "exercises": [{
+            "exercise": "Barbell Squat",
+            "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
+        }],
+    }
+    replacement = {
+        "title": "Fullkropp A",
+        "purpose": "Knevennlig fullkropp · tirsdag",
+        "weekday": "tirsdag",
+        "exercises": [{
+            "exercise": "Leg Press",
+            "sets": [{"type": "normal", "weight_kg": 90, "reps": 8}],
+        }],
+    }
+
+    def responder(_question: str, context: dict) -> WeeklyCoachReply:
+        if "hevy_proposal_under_discussion" in context:
+            assert context["hevy_proposal_under_discussion"]["routine"] == original
+            return WeeklyCoachReply(
+                answer="Jeg har byttet squat med leg press og beholdt tirsdagen.",
+                model="deepseek-v4-pro",
+                operations=[],
+                hevy_routines=[replacement],
+            )
+        return WeeklyCoachReply(
+            answer="Her er et forslag.",
+            model="deepseek-v4-pro",
+            operations=[],
+            hevy_routine=original,
+        )
+
+    def create_in_hevy(routine: dict) -> str:
+        created.append(routine)
+        return "hevy-leg-press"
+
+    async def propose_adjust_then_apply() -> tuple[httpx.Response, httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=path,
+                api_token="test-token",
+                weekly_coach_responder=responder,
+                hevy_routine_creator=create_in_hevy,
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            proposed = await client.post(
+                "/api/weeks/2026-07-20/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Lag en Hevy-mal for fullkropp"},
+            )
+            original_id = proposed.json()["hevy_proposal"]["id"]
+            adjusted = await client.post(
+                f"/api/hevy-routine-proposals/{original_id}/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Bytt squat med leg press"},
+            )
+            # En ny pending-mal er fortsatt bare en lokal kandidat.
+            assert created == []
+            replacement_id = adjusted.json()["replacement"]["id"]
+            applied = await client.post(
+                f"/api/hevy-routine-proposals/{replacement_id}/apply",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        return proposed, adjusted, applied
+
+    proposed, adjusted, applied = asyncio.run(propose_adjust_then_apply())
+
+    assert proposed.status_code == 200
+    assert adjusted.status_code == 200
+    body = adjusted.json()
+    assert body["changes_applied"] is False
+    assert body["replacement"]["routine"]["exercises"][0]["exercise"] == "Leg Press"
+    assert body["replacement"]["suggested_date"] == "2026-07-21"
+    assert created == [{
+        "title": "Fullkropp A",
+        "notes": None,
+        "exercises": [{
+            "exercise": "Leg Press",
+            "sets": [{"type": "normal", "weight_kg": 90.0, "reps": 8}],
+        }],
+    }]
+    assert applied.status_code == 200
+
+    conn = _db(path)
+    try:
+        rows = conn.execute(
+            "SELECT status, routine_json FROM hevy_routine_proposals ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert [row["status"] for row in rows] == ["discarded", "applied"]
+    assert json.loads(rows[0]["routine_json"]) == original
+    assert json.loads(rows[1]["routine_json"])["exercises"][0]["exercise"] == "Leg Press"

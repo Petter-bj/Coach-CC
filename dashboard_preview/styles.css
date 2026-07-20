@@ -152,6 +152,19 @@ button, input { font: inherit; } button { cursor: pointer; }
 .hevy-routine-proposals { display: grid; gap: 13px; margin-top: 15px; }
 .hevy-routine-proposals .hevy-routine-proposal { margin-top: 0; }
 .hevy-routine-meta { margin: 7px 0 2px; color: #287a52; font-size: 12px; font-weight: 720; letter-spacing: -.01em; }
+.hevy-feedback { margin-top: 13px; }
+.hevy-feedback-form[hidden], .hevy-feedback-reply[hidden] { display: none !important; }
+.hevy-feedback-form { display: flex; min-height: 43px; overflow: hidden; border: 1px solid #cbe9da; border-radius: 13px; background: rgba(255,255,255,.86); }
+.hevy-feedback-form input { min-width: 0; flex: 1; border: 0; outline: 0; padding: 0 14px; color: var(--ink); background: transparent; font: inherit; font-size: 13px; }
+.hevy-feedback-form input::placeholder { color: #9ba9a1; }
+.hevy-feedback-form button { width: 83px; border: 0; color: #fff; background: #287a52; font: inherit; font-size: 12px; font-weight: 760; }
+.hevy-feedback-form button:hover { background: #206b47; }
+.hevy-feedback-form button:disabled { cursor: wait; opacity: .72; }
+.hevy-feedback-reply { margin-top: 13px; padding: 14px 15px; border: 1px solid #d8eee2; border-radius: 13px; background: rgba(255,255,255,.7); }
+.hevy-feedback-reply > p:not(.eyebrow) { margin: 6px 0 7px; color: var(--muted); font-size: 13px; line-height: 1.48; white-space: pre-wrap; }
+.hevy-feedback-reply small { color: var(--faint); font-size: 10px; }
+.hevy-feedback-trigger { border-color: #cbe9da; color: #287a52; background: #fff; }
+.hevy-feedback-trigger:hover { border-color: #9fd5b9; color: #206b47; background: #f7fcf9; }
 
 @media (max-width: 820px) {
   .hevy-routine-proposal { margin-top: 11px; padding: 16px; border-radius: 15px; }
@@ -163,4 +176,11 @@ button, input { font: inherit; } button { cursor: pointer; }
   .hevy-routine-exercise { padding: 11px; border-radius: 12px; }
   .hevy-routine-exercise strong { font-size: 11px; }
   .hevy-routine-exercise p { font-size: 10px; }
+  .hevy-feedback { margin-top: 11px; }
+  .hevy-feedback-form { min-height: 39px; border-radius: 11px; }
+  .hevy-feedback-form input { padding: 0 11px; font-size: 10px; }
+  .hevy-feedback-form button { width: 66px; font-size: 10px; }
+  .hevy-feedback-reply { margin-top: 11px; padding: 11px; border-radius: 11px; }
+  .hevy-feedback-reply > p:not(.eyebrow) { font-size: 11px; }
+  .hevy-feedback-reply small { font-size: 9px; }
 }

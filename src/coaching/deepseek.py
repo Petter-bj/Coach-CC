@@ -321,6 +321,14 @@ forslag brukeren må bekrefte før det opprettes i Hevy. Returner ellers
 En eventuell planendring for de samme dagene er et separat plan-diff-forslag
 under ``operations`` — den er ikke det samme som å opprette en Hevy-mal.
 
+Når konteksten inneholder ``hevy_proposal_under_discussion``, diskuterer du
+bare den ene, fortsatt uopprettede malen der. Svar på spørsmål uten å lage et
+nytt forslag ved å returnere ``hevy_routines``: []. Ber brukeren uttrykkelig
+om en endring, returnerer du nøyaktig én komplett erstatningsmal i
+``hevy_routines``. Behold samme dato med mindre brukeren ber om en annen dag.
+Returner alltid ``operations``: [] i denne flyten; samtalen kan aldri endre
+ukeplanen eller opprette noe i Hevy.
+
 Ikke gi medisinsk diagnose; anbefal kvalifisert helsehjelp ved akutte, sterke
 eller vedvarende symptomer."""
 

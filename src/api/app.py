@@ -438,6 +438,90 @@ def create_app(
             )
         return {"id": proposal_id, "status": "applied", "hevy_routine_id": routine_id}
 
+    @app.post("/api/hevy-routine-proposals/{proposal_id}/coach", dependencies=[Depends(auth)])
+    def discuss_hevy_routine_proposal(proposal_id: int, message: CoachMessage) -> dict[str, Any]:
+        """Svar om eller erstatt ett Hevy-utkast, uten å opprette i Hevy.
+
+        En konkret justering lager en ny pending-rad og forkaster bare det
+        gamle utkastet. Det er fortsatt ikke en ekstern skrivehandling; den
+        nye malen må få sin egen, synlige «Opprett i Hevy»-bekreftelse.
+        """
+        question = message.message.strip()
+        if not question:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail="Message cannot be blank")
+        with connect(db_path) as conn:
+            current = pending_hevy_routine_proposal(conn, proposal_id)
+            if current is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Hevy-forslaget finnes ikke eller er allerede håndtert",
+                )
+            week_start = date.fromisoformat(current["week_start"])
+            context = build_week_coach_context(conn, week_start, question=question)
+
+        # Den valgte malen følger med eksplisitt, slik at «bytt squat med leg
+        # press» ikke tvinger modellen til å gjette hva kortet inneholder.
+        context["hevy_proposal_under_discussion"] = {
+            "routine": current["routine"],
+            "suggested_date": current["suggested_date"],
+            "purpose": current["purpose"],
+            "status": "pending",
+        }
+        if message.history:
+            context["conversation_history"] = [turn.model_dump() for turn in message.history]
+
+        try:
+            reply = week_responder(question, context)
+        except CoachUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Coachen er ikke konfigurert ennå",
+            ) from exc
+        except CoachProviderError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Coachen er midlertidig utilgjengelig. Prøv igjen.",
+            ) from exc
+
+        raw_routines = list(reply.hevy_routines)
+        if not raw_routines and reply.hevy_routine is not None:
+            raw_routines = [reply.hevy_routine]
+        candidates = validate_hevy_routines(raw_routines, week_start=current["week_start"])
+        replacement = None
+        if candidates:
+            candidate = candidates[0]
+            # Hent på nytt rett før vi skriver. Hvis noen allerede har
+            # opprettet/forkastet originalen mens modellen svarte, rulles hele
+            # denne transaksjonen tilbake i stedet for å lage et løst utkast.
+            with connect(db_path) as conn:
+                latest = pending_hevy_routine_proposal(conn, proposal_id)
+                if latest is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Hevy-forslaget ble håndtert mens coachen svarte",
+                    )
+                replacement = create_hevy_routine_proposal(
+                    conn,
+                    week_start=latest["week_start"],
+                    question=question,
+                    coach_answer=reply.answer,
+                    routine=candidate["routine"],
+                    suggested_date=candidate["suggested_date"],
+                    purpose=candidate["purpose"],
+                )
+                if not discard_hevy_routine_proposal(conn, proposal_id):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Hevy-forslaget ble håndtert mens coachen svarte",
+                    )
+        return {
+            "answer": reply.answer,
+            "model": reply.model,
+            "changes_applied": False,
+            "replacement": replacement,
+        }
+
     @app.post("/api/hevy-routine-proposals/{proposal_id}/discard", dependencies=[Depends(auth)])
     def discard_hevy_routine(proposal_id: int) -> dict[str, Any]:
         with connect(db_path) as conn:
