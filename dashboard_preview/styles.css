@@ -113,6 +113,7 @@ button, input { font: inherit; } button { cursor: pointer; }
 .injury-proposal-note { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .injury-proposal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .injury-proposal-actions button { min-height: 40px; padding: 0 15px; border-radius: 12px; font-size: 13px; font-weight: 750; }
+.week-injury-proposal { margin-left: 0; }
 
 @media (max-width: 820px) {
   .coach-reply { margin: 11px 0 0; padding: 14px 15px; border-radius: 15px; }

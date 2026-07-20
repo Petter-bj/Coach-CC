@@ -92,6 +92,7 @@ class WeeklyCoachReply:
     operations: list[dict[str, Any]]
     hevy_routines: list[dict[str, Any]] = field(default_factory=list)
     hevy_routine: dict[str, Any] | None = None
+    injury_proposal: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -299,7 +300,14 @@ formen:
         }
       ]
     }
-  ]
+  ],
+  "injury_proposal": null eller {
+    "action": "update",
+    "injury_id": 123,
+    "severity": 1,
+    "status": "active|healing|resolved",
+    "notes": "kort, nøytral oppsummering av det brukeren selv oppga"
+  }
 }
 
 Bruk bare session_id-er som står i konteksten, og bare datoer innen den valgte
@@ -320,6 +328,18 @@ forslag brukeren må bekrefte før det opprettes i Hevy. Returner ellers
 
 En eventuell planendring for de samme dagene er et separat plan-diff-forslag
 under ``operations`` — den er ikke det samme som å opprette en Hevy-mal.
+
+Du kan i tillegg foreslå én statusendring for en *brukeroppgitt* skade under
+``injury_proposal``. Dette er et separat, synlig forslag som brukeren må
+bekrefte; du har aldri skrivetilgang. Når brukeren tydelig sier at en kjent
+aktiv plage er borte eller symptomfri, returnerer du et ``update``-forslag med
+samme ``injury_id``, ``status``: "resolved" og ``severity``: 1. Ikke bare
+skriv at du «noterer» det og ikke be om planendring først. Ved mer tvetydige
+forbedringer kan du spørre, eller foreslå ``healing`` når brukerens ord gir
+grunnlag for det. Bruk bare ``injury_id``-er blant ``active_injuries`` i
+konteksten. Et eksplisitt Hevy-ønske skal alltid gi en komplett
+``hevy_routines``-kandidat i samme svar; ikke skriv at et forslag finnes uten
+å returnere objektet som UI-et trenger.
 
 Når konteksten inneholder ``hevy_proposal_under_discussion``, diskuterer du
 bare den ene, fortsatt uopprettede malen der. Svar på spørsmål uten å lage et
@@ -383,6 +403,7 @@ def ask_deepseek_week_coach(
     operations = decoded.get("operations")
     raw_routines = decoded.get("hevy_routines")
     single_routine = decoded.get("hevy_routine")
+    injury_proposal = decoded.get("injury_proposal")
     if isinstance(raw_routines, list):
         hevy_routines = [item for item in raw_routines if isinstance(item, dict)]
     elif isinstance(raw_routines, dict):
@@ -398,6 +419,7 @@ def ask_deepseek_week_coach(
         operations=[item for item in operations if isinstance(item, dict)] if isinstance(operations, list) else [],
         hevy_routines=hevy_routines,
         hevy_routine=single_routine if isinstance(single_routine, dict) else None,
+        injury_proposal=injury_proposal if isinstance(injury_proposal, dict) else None,
     )
 
 

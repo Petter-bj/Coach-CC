@@ -431,6 +431,111 @@ def test_weekly_coach_requires_confirmation_before_creating_hevy_routine(tmp_pat
     assert dict(row) == {"status": "applied", "hevy_routine_id": "hevy-routine-123"}
 
 
+def test_weekly_coach_returns_separate_hevy_and_injury_proposals(tmp_path) -> None:
+    """Én melding kan gi både en Hevy-mal og en brukergodkjent helsestatus."""
+    path = tmp_path / "trening.db"
+    conn = _db(path)
+    injury_id = conn.execute(
+        """
+        INSERT INTO injuries (body_part, severity, started_at, status, notes)
+        VALUES ('IT-band-syndrom', 2, '2026-07-10', 'active', 'Tidligere smerte ved løping.')
+        """
+    ).lastrowid
+    conn.commit()
+    conn.close()
+    created: list[dict] = []
+
+    def responder(_question: str, context: dict) -> WeeklyCoachReply:
+        assert context["active_injuries"] == [{
+            "id": injury_id,
+            "body_part": "IT-band-syndrom",
+            "severity": 2,
+            "started_at": "2026-07-10",
+            "status": "active",
+            "notes": "Tidligere smerte ved løping.",
+        }]
+        return WeeklyCoachReply(
+            answer="Her er en Hevy-mal og et forslag om å avslutte IT-band-statusen.",
+            model="deepseek-v4-pro",
+            operations=[],
+            hevy_routine={
+                "title": "Fullkropp A",
+                "exercises": [{
+                    "exercise": "Barbell Squat",
+                    "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
+                }],
+            },
+            injury_proposal={
+                "action": "update",
+                "injury_id": injury_id,
+                "status": "resolved",
+                "severity": 1,
+                "notes": "Brukeren oppgir at IT-band-plagene er borte.",
+            },
+        )
+
+    async def ask_then_confirm_injury() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=path,
+                api_token="test-token",
+                weekly_coach_responder=responder,
+                hevy_routine_creator=lambda routine: created.append(routine) or "hevy-1",
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            proposed = await client.post(
+                "/api/weeks/2026-07-20/coach",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Lag en Hevy-mal. IT-band-problemet er borte nå."},
+            )
+            injury_proposal_id = proposed.json()["injury_proposal"]["id"]
+            applied = await client.post(
+                f"/api/injury-proposals/{injury_proposal_id}/apply",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        return proposed, applied
+
+    proposed, applied = asyncio.run(ask_then_confirm_injury())
+
+    assert proposed.status_code == 200
+    body = proposed.json()
+    assert body["hevy_proposal"]["routine"]["title"] == "Fullkropp A"
+    assert body["injury_proposal"] == {
+        "id": body["injury_proposal"]["id"],
+        "status": "pending",
+        "injury": {
+            "action": "update",
+            "injury_id": injury_id,
+            "body_part": "IT-band-syndrom",
+            "from_status": "active",
+            "from_severity": 2,
+            "status": "resolved",
+            "severity": 1,
+            "notes": "Brukeren oppgir at IT-band-plagene er borte.",
+            "reported_on": date.today().isoformat(),
+        },
+    }
+    # Forslagene er uavhengige. Å godkjenne helsestatus skal ikke opprette
+    # Hevy-malen, og det skjer ingen Hevy-skriving før dens eget grønne klikk.
+    assert created == []
+    assert applied.status_code == 200
+    assert applied.json()["injury"]["status"] == "resolved"
+
+    conn = _db(path)
+    try:
+        status = conn.execute(
+            "SELECT status FROM injuries WHERE id = ?", (injury_id,)
+        ).fetchone()["status"]
+        hevy_status = conn.execute(
+            "SELECT status FROM hevy_routine_proposals"
+        ).fetchone()["status"]
+    finally:
+        conn.close()
+    assert status == "resolved"
+    assert hevy_status == "pending"
+
+
 def test_hevy_proposal_can_be_discussed_without_changing_or_creating_it(tmp_path) -> None:
     """Et spørsmål om ett kort får rutinen som kontekst, men er aldri en write."""
     path = tmp_path / "trening.db"

@@ -9,6 +9,10 @@ const injuryProposal = document.querySelector("[data-injury-proposal]");
 const injuryProposalTitle = document.querySelector("[data-injury-proposal-title]");
 const injuryProposalDetail = document.querySelector("[data-injury-proposal-detail]");
 const injuryProposalNote = document.querySelector("[data-injury-proposal-note]");
+const weekInjuryProposal = document.querySelector("[data-week-injury-proposal]");
+const weekInjuryProposalTitle = document.querySelector("[data-week-injury-proposal-title]");
+const weekInjuryProposalDetail = document.querySelector("[data-week-injury-proposal-detail]");
+const weekInjuryProposalNote = document.querySelector("[data-week-injury-proposal-note]");
 const reviewForm = document.querySelector("#review-form");
 const reviewNote = document.querySelector("#review-note");
 const reviewButton = reviewForm.querySelector("button");
@@ -43,6 +47,7 @@ let toastTimer;
 let currentToday;
 let displayedWeekStart;
 let currentInjuryProposal;
+let currentWeekInjuryProposal;
 let currentWeekProposal;
 const currentHevyProposals = new Map();
 const hevyProposalFeedbackHistories = new Map();
@@ -99,26 +104,49 @@ function injuryStatusLabel(status) {
   }[status] || status || "Ukjent";
 }
 
-function renderInjuryProposal(proposal) {
+function renderInjuryProposalInto(proposal, target) {
   const injury = proposal?.injury;
-  if (!injuryProposal || !injury?.body_part) return;
-  currentInjuryProposal = proposal;
+  if (!target.container || !target.title || !target.detail || !target.note || !injury?.body_part) return false;
   const isUpdate = injury.action === "update";
-  injuryProposalTitle.textContent = isUpdate
+  target.title.textContent = isUpdate
     ? `${injury.body_part}: ${injuryStatusLabel(injury.from_status)} → ${injuryStatusLabel(injury.status)}`
     : `Legg inn ${injury.body_part.toLowerCase()}`;
-  injuryProposalDetail.textContent = isUpdate
+  target.detail.textContent = isUpdate
     ? `Alvorlighetsgrad ${injury.from_severity} → ${injury.severity} · brukeroppgitt`
     : `Aktiv · alvorlighetsgrad ${injury.severity} · startet ${formatDate(injury.started_at)}`;
-  injuryProposalNote.textContent = injury.notes
+  target.note.textContent = injury.notes
     ? `Notat: ${injury.notes}`
     : "Dette er en brukeroppgitt statusendring, ikke en medisinsk diagnose.";
-  injuryProposal.hidden = false;
+  target.container.hidden = false;
+  return true;
+}
+
+function renderInjuryProposal(proposal) {
+  if (renderInjuryProposalInto(proposal, {
+    container: injuryProposal,
+    title: injuryProposalTitle,
+    detail: injuryProposalDetail,
+    note: injuryProposalNote,
+  })) currentInjuryProposal = proposal;
+}
+
+function renderWeekInjuryProposal(proposal) {
+  if (renderInjuryProposalInto(proposal, {
+    container: weekInjuryProposal,
+    title: weekInjuryProposalTitle,
+    detail: weekInjuryProposalDetail,
+    note: weekInjuryProposalNote,
+  })) currentWeekInjuryProposal = proposal;
 }
 
 function clearInjuryProposal() {
   currentInjuryProposal = undefined;
   if (injuryProposal) injuryProposal.hidden = true;
+}
+
+function clearWeekInjuryProposal() {
+  currentWeekInjuryProposal = undefined;
+  if (weekInjuryProposal) weekInjuryProposal.hidden = true;
 }
 
 function previewCoachReply(question) {
@@ -1610,7 +1638,23 @@ function previewHevyProposalFeedback(proposal, question) {
 function previewWeekCoachReply(question) {
   const wantsHevy = /\b(hevy|mal|template|rutine)\b/i.test(question);
   const wantsChange = /\b(flytt|endre|bytt|kutt|legg\s+til|droppe|dropp)\b/i.test(question);
+  const reportsResolvedItBand = /\b(it[\s-]*band|itbs)\b/i.test(question)
+    && /\b(borte|gått\s+over|ingen\s+(?:problemer|smerte)|ikke\s+lenger|symptomfri)\b/i.test(question);
   const weekStart = displayedWeekStart || "2026-07-13";
+  const injury_proposal = reportsResolvedItBand ? {
+    id: null,
+    status: "pending",
+    injury: {
+      action: "update",
+      injury_id: null,
+      body_part: "IT-band-syndrom",
+      from_status: "active",
+      from_severity: 2,
+      status: "resolved",
+      severity: 1,
+      notes: "Brukeren oppgir at IT-band-plagene er borte.",
+    },
+  } : null;
   if (wantsHevy) {
     // Nevner meldingen to ukedager (f.eks. «tirsdag og fredag»), viser previewet
     // to forslag med hver sin dato i den valgte uken.
@@ -1635,6 +1679,7 @@ function previewWeekCoachReply(question) {
         : "Her er en konkret Hevy-mal for uken. Se øvelsene og settene før du oppretter den — i previewet sendes ingenting til Hevy.",
       model: "Preview",
       operations: [],
+      injury_proposal,
       hevy_proposals: targets.map(({ name, offset }, index) => ({
         id: null,
         status: "pending",
@@ -1647,14 +1692,18 @@ function previewWeekCoachReply(question) {
   }
   if (!wantsChange) {
     return {
-      answer: "I previewet kan coachen svare på spørsmål om den valgte uken. Når dashboardet kjører på VPS-en, får svaret den faktiske ukekonteksten og kan ved behov legge ved et bekreftbart endringsforslag.",
+      answer: injury_proposal
+        ? "Jeg har laget et eget forslag om å avslutte IT-band-statusen. Kontroller oppsummeringen og bekreft bare hvis den stemmer; i previewet endres ingenting automatisk."
+        : "I previewet kan coachen svare på spørsmål om den valgte uken. Når dashboardet kjører på VPS-en, får svaret den faktiske ukekonteksten og kan ved behov legge ved et bekreftbart endringsforslag.",
       model: "Preview",
       operations: [],
+      injury_proposal,
     };
   }
   return {
     answer: "Dette er et mulig oppsett: gi terskeløkta litt mer rom og behold resten av ukens rolige rytme. Se diffen før du tar stilling — ingenting er endret ennå.",
     model: "Preview",
+    injury_proposal,
     operations: [{
       action: "move",
       session_id: null,
@@ -1699,6 +1748,7 @@ document.querySelectorAll("[data-week-nav]").forEach((button) => {
     const base = displayedWeekStart || currentToday?.date || isoDate(new Date());
     const movement = button.dataset.weekNav;
     clearWeekProposal();
+    clearWeekInjuryProposal();
     clearHevyRoutineProposals();
     if (weekCoachReply) weekCoachReply.hidden = true;
     if (movement === "previous") loadWeek(addDays(base, -7));
@@ -1719,6 +1769,7 @@ document.addEventListener("click", (event) => {
   const weekNavigation = document.querySelector('[data-view="Uke"]');
   if (weekNavigation) setActiveView(weekNavigation);
   clearWeekProposal();
+  clearWeekInjuryProposal();
   clearHevyRoutineProposals();
   if (weekCoachReply) weekCoachReply.hidden = true;
   showPage("Uke", opener.dataset.blockOpenWeek);
@@ -1847,6 +1898,54 @@ document.querySelector("[data-injury-proposal-discard]")?.addEventListener("clic
   }
 });
 
+document.querySelector("[data-week-injury-proposal-apply]")?.addEventListener("click", async () => {
+  const proposal = currentWeekInjuryProposal;
+  if (!proposal) return;
+  const button = document.querySelector("[data-week-injury-proposal-apply]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Oppdaterer …";
+  }
+  try {
+    if (Number.isInteger(proposal.id)) {
+      const response = await fetch(`/api/injury-proposals/${proposal.id}/apply`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error("week injury proposal apply failed");
+    }
+    clearWeekInjuryProposal();
+    await loadWeek(displayedWeekStart || currentToday?.date || isoDate(new Date()));
+    showToast("Skadestatus er oppdatert og brukes av coachen videre.");
+  } catch {
+    showToast("Kunne ikke oppdatere skadestatusen. Ingenting er endret.");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Bekreft oppdatering";
+    }
+  }
+});
+
+document.querySelector("[data-week-injury-proposal-discard]")?.addEventListener("click", async () => {
+  const proposal = currentWeekInjuryProposal;
+  clearWeekInjuryProposal();
+  if (!proposal || !Number.isInteger(proposal.id)) {
+    showToast("Skadeforslaget er forkastet.");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/injury-proposals/${proposal.id}/discard`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("week injury proposal discard failed");
+    showToast("Skadeforslaget er forkastet.");
+  } catch {
+    showToast("Skadeforslaget kunne ikke forkastes på serveren. Det er uansett ikke brukt.");
+  }
+});
+
 weekChatForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = weekChatMessage?.value.trim();
@@ -1860,6 +1959,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekChatButton.textContent = "Tenker …";
   }
   clearWeekProposal();
+  clearWeekInjuryProposal();
   clearHevyRoutineProposals();
   try {
     const weekStart = displayedWeekStart || startOfWeek(currentToday?.date || isoDate(new Date()));
@@ -1877,6 +1977,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     weekCoachHistory.push({ role: "user", content: question }, { role: "assistant", content: payload.answer });
     if (weekCoachHistory.length > 8) weekCoachHistory.splice(0, weekCoachHistory.length - 8);
     if (payload.proposal) renderWeekProposal(payload.proposal);
+    if (payload.injury_proposal) renderWeekInjuryProposal(payload.injury_proposal);
     // Ny liste-form med bakoverkompatibelt enkelt-felt.
     const proposals = payload.hevy_proposals || (payload.hevy_proposal ? [payload.hevy_proposal] : []);
     if (proposals.length) renderHevyRoutineProposals(proposals);
@@ -1887,6 +1988,7 @@ weekChatForm?.addEventListener("submit", async (event) => {
     if (weekCoachReply) weekCoachReply.hidden = false;
     setText("[data-week-coach-model]", `${preview.model} · Ingen endring er gjort`);
     if (preview.operations.length) renderWeekProposal({ id: null, operations: preview.operations, status: "pending" });
+    if (preview.injury_proposal) renderWeekInjuryProposal(preview.injury_proposal);
     const previewProposals = preview.hevy_proposals || (preview.hevy_proposal ? [preview.hevy_proposal] : []);
     if (previewProposals.length) renderHevyRoutineProposals(previewProposals);
     if (weekChatMessage) weekChatMessage.value = "";

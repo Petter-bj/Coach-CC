@@ -353,9 +353,15 @@ def create_app(
             raw_routines = [reply.hevy_routine]
         week_start_iso = context["scope"]["week_start"]
         routines = validate_hevy_routines(raw_routines, week_start=week_start_iso)
+        injury = validate_injury_proposal(
+            reply.injury_proposal,
+            active_injuries=context.get("active_injuries", []),
+            reported_on=date.fromisoformat(context["scope"]["today"]),
+        )
         proposal = None
         hevy_proposals: list[dict[str, Any]] = []
-        if operations or routines:
+        injury_proposal = None
+        if operations or routines or injury is not None:
             with connect(db_path) as conn:
                 if operations:
                     proposal = create_proposal(
@@ -375,6 +381,13 @@ def create_app(
                         suggested_date=candidate["suggested_date"],
                         purpose=candidate["purpose"],
                     ))
+                if injury is not None:
+                    injury_proposal = create_injury_proposal(
+                        conn,
+                        question=question,
+                        coach_answer=reply.answer,
+                        proposal=injury,
+                    )
         return {
             "answer": reply.answer,
             "model": reply.model,
@@ -383,6 +396,7 @@ def create_app(
             "hevy_proposals": hevy_proposals,
             # Bakoverkompatibelt enkelt-felt: første forslag eller null.
             "hevy_proposal": hevy_proposals[0] if hevy_proposals else None,
+            "injury_proposal": injury_proposal,
         }
 
     @app.post("/api/week-proposals/{proposal_id}/apply", dependencies=[Depends(auth)])

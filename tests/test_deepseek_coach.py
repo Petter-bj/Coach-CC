@@ -161,6 +161,13 @@ def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
                         "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
                     }],
                 },
+                "injury_proposal": {
+                    "action": "update",
+                    "injury_id": 7,
+                    "status": "resolved",
+                    "severity": 1,
+                    "notes": "Brukeren oppgir at plagen er borte.",
+                },
             })}}]},
         )
 
@@ -190,6 +197,13 @@ def test_week_coach_parses_a_structured_candidate_without_writing() -> None:
             "rest_seconds": 120,
             "sets": [{"type": "normal", "weight_kg": 60, "reps": 6}],
         }],
+    }
+    assert reply.injury_proposal == {
+        "action": "update",
+        "injury_id": 7,
+        "status": "resolved",
+        "severity": 1,
+        "notes": "Brukeren oppgir at plagen er borte.",
     }
 
 
