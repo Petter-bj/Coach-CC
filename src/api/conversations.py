@@ -8,6 +8,7 @@ from typing import Any
 
 
 BLOCK_THREAD = "block:planning"
+GENERAL_COACH_THREAD = "coach:general"
 MAX_STORED_MESSAGES = 32
 MODEL_CONTEXT_MESSAGES = 12
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import secrets
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
@@ -16,6 +18,8 @@ from pydantic import BaseModel, Field
 from src.api.coach import build_coach_context
 from src.api.conversations import (
     BLOCK_THREAD,
+    GENERAL_COACH_THREAD,
+    MAX_STORED_MESSAGES,
     append_exchange,
     client_history,
     conversation_history,
@@ -125,6 +129,22 @@ CoachResponder = Callable[[str, dict[str, Any]], CoachReply]
 WeeklyCoachResponder = Callable[[str, dict[str, Any]], WeeklyCoachReply]
 BlockCoachResponder = Callable[[str, dict[str, Any]], BlockCoachReply]
 HevyRoutineCreator = Callable[[dict[str, Any]], str]
+SyncLauncher = Callable[[], Any]
+
+
+def _launch_sync() -> subprocess.Popen[Any]:
+    """Start den samme, låsbeskyttede importen som systemd-timeren bruker.
+
+    Dette er med hensikt en fast kommando, ikke en generell shell- eller
+    modelltilgang. ``src.sync`` låser selv, så et ekstra trykk mens timeren
+    allerede går blir ufarlig og avsluttes stille.
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    return subprocess.Popen(
+        [sys.executable, "-m", "src.sync"],
+        cwd=project_root,
+        start_new_session=True,
+    )
 
 
 def create_app(
@@ -135,6 +155,7 @@ def create_app(
     weekly_coach_responder: WeeklyCoachResponder | None = None,
     block_coach_responder: BlockCoachResponder | None = None,
     hevy_routine_creator: HevyRoutineCreator | None = None,
+    sync_launcher: SyncLauncher | None = None,
 ) -> FastAPI:
     """Lag dashboardet og dets private API med eksplisitte bekreftelsesflyter."""
     token = api_token if api_token is not None else os.getenv("TRENING_API_TOKEN")
@@ -143,6 +164,8 @@ def create_app(
     week_responder = weekly_coach_responder or ask_deepseek_week_coach
     block_responder = block_coach_responder or ask_deepseek_block_coach
     routine_creator = hevy_routine_creator or create_routine
+    launch_sync = sync_launcher or _launch_sync
+    sync_process: Any | None = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -165,6 +188,40 @@ def create_app(
     @app.get("/health", dependencies=[Depends(auth)])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/api/sync", dependencies=[Depends(auth)])
+    def sync_now() -> dict[str, str]:
+        """La brukeren eksplisitt hente nye data uten å vente på neste time."""
+        nonlocal sync_process
+        if sync_process is not None and sync_process.poll() is None:
+            return {
+                "status": "running",
+                "message": "Synkronisering kjører allerede.",
+            }
+        try:
+            sync_process = launch_sync()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Kunne ikke starte synkronisering akkurat nå",
+            ) from exc
+        return {
+            "status": "started",
+            "message": "Synkronisering er startet. Siden oppdateres når den er ferdig.",
+        }
+
+    @app.get("/api/sync/status", dependencies=[Depends(auth)])
+    def sync_status() -> dict[str, str | int]:
+        """Gi UI-et beskjed når en brukerstartet synk er helt ferdig."""
+        if sync_process is None:
+            return {"status": "idle"}
+        result = sync_process.poll()
+        if result is None:
+            return {"status": "running"}
+        return {
+            "status": "finished" if result == 0 else "failed",
+            "return_code": result,
+        }
 
     @app.get("/api/today", dependencies=[Depends(auth)])
     def today(day: date | None = None) -> dict:
@@ -262,6 +319,75 @@ def create_app(
         with connect(db_path) as conn:
             messages = conversation_history(conn, thread=today_thread(target_day))
         return {"messages": messages}
+
+    @app.get("/api/coach/general/history", dependencies=[Depends(auth)])
+    def general_coach_history() -> dict[str, Any]:
+        """Den vedvarende samtalen som ikke tilhører én dag eller én uke."""
+        with connect(db_path) as conn:
+            messages = conversation_history(
+                conn, thread=GENERAL_COACH_THREAD, limit=MAX_STORED_MESSAGES
+            )
+        return {"messages": messages}
+
+    @app.post("/api/coach/general", dependencies=[Depends(auth)])
+    def general_coach_chat(message: CoachMessage) -> dict[str, Any]:
+        """Snakk fritt med coachen uten å skrive til plan eller helseprofil.
+
+        Denne flaten har bredere kontekst enn I dag. Den kan diskutere mål,
+        blokk og neste uke, men konkrete endringer går fortsatt gjennom et
+        synlig forslag på Uke- eller Blokk-siden.
+        """
+        question = message.message.strip()
+        if not question:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail="Message cannot be blank")
+        target_day = date.today()
+        with connect(db_path) as conn:
+            context = build_coach_context(conn, target_day, question=question)
+            context["coach_surface"] = "general"
+            context["current_week"] = build_week_overview(conn, target_day)
+            context["current_block"] = build_block_payload(conn, target_day)["block"]
+            context["change_contract"] = (
+                "Du kan diskutere endringer fritt, men kan ikke endre plan, "
+                "blokk eller Hevy-maler direkte fra denne samtalen. Oppsummer "
+                "den konkrete endringen og be brukeren åpne Uke eller Blokk for "
+                "et eksplisitt forslag med godkjenning."
+            )
+            stored_history = conversation_history(
+                conn, thread=GENERAL_COACH_THREAD, limit=MAX_STORED_MESSAGES
+            )
+        context["conversation_history"] = client_history(stored_history) or [
+            turn.model_dump() for turn in message.history
+        ]
+        try:
+            reply = responder(question, context)
+        except CoachUnavailableError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Coachen er ikke konfigurert ennå",
+            ) from exc
+        except CoachProviderError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Coachen er midlertidig utilgjengelig. Prøv igjen.",
+            ) from exc
+        with connect(db_path) as conn:
+            append_exchange(
+                conn,
+                thread=GENERAL_COACH_THREAD,
+                question=question,
+                answer=reply.answer,
+                model=reply.model,
+            )
+            history = conversation_history(
+                conn, thread=GENERAL_COACH_THREAD, limit=MAX_STORED_MESSAGES
+            )
+        return {
+            "answer": reply.answer,
+            "model": reply.model,
+            "changes_applied": False,
+            "messages": history,
+        }
 
     @app.post("/api/coach/chat", dependencies=[Depends(auth)])
     def coach_chat(message: CoachMessage) -> dict[str, Any]:

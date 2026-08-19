@@ -100,13 +100,14 @@ def _week_payload(conn: sqlite3.Connection, target_date: date) -> dict[str, Any]
     }
 
 
-def _garmin_sync_at(conn: sqlite3.Connection) -> str | None:
+def _source_sync_at(conn: sqlite3.Connection, source: str) -> str | None:
     row = conn.execute(
         """
         SELECT MAX(last_successful_sync_at) AS synced_at
           FROM source_stream_state
-         WHERE source = 'garmin'
-        """
+         WHERE source = ?
+        """,
+        (source,),
     ).fetchone()
     return row["synced_at"] if row else None
 
@@ -242,7 +243,11 @@ def build_today_payload(conn: sqlite3.Connection, target_date: date | None = Non
         "date": target_date.isoformat(),
         "sources": {
             "garmin": {
-                "last_synced_at": _garmin_sync_at(conn),
+                "last_synced_at": _source_sync_at(conn, "garmin"),
+                "source": "automatic",
+            },
+            "hevy": {
+                "last_synced_at": _source_sync_at(conn, "hevy"),
                 "source": "automatic",
             },
         },

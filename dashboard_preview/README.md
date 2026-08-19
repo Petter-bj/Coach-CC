@@ -1,20 +1,28 @@
-# Dashboard
+# Dashboard client
 
-Dette er den mobil-første dashboard-klienten for «I dag».
+This is the mobile-first client served by `src.api.app` in the private Coach-CC
+deployment.
 
-Når den åpnes som en enkel statisk preview, bruker den representative
-eksempeldata. Når den serveres av `src.api.app`, henter den ekte, read-only
-data fra `/api/today` på samme private URL. Et automatisk matchet Garmin-økt
-kan nå bekreftes med et valgfritt avviksnotat. Chat og Garmin-push er fortsatt
-bevisst ikke koblet på.
+It contains four main surfaces:
 
-Start det fra prosjektmappen:
+- **I dag** — recovery signals, the current recommendation, planned workout,
+  workout reviews, and a scoped daily coach conversation.
+- **Uke** — week navigation, planned and completed sessions, day logs, and a
+  week coach that can create explicit plan and Hevy-routine proposals.
+- **Blokk** — longer training blocks with a separate planning conversation and
+  explicit block proposals.
+- **Coach** — a persistent free-form conversation with broader personal
+  context. It can discuss goals and priorities, but changes still move through
+  a visible proposal and confirmation flow.
+
+When opened as a static preview, the client uses representative data and local
+fallback responses. It does not store coach messages or contact data providers.
 
 ```bash
 python3 -m http.server 4173 --directory dashboard_preview
 ```
 
-Åpne deretter [http://localhost:4173](http://localhost:4173) på Mac-en. For å prøve det på iPhone, bruk samme adresse med Mac-ens lokale IP mens begge er på samme Wi-Fi.
+Open [http://localhost:4173](http://localhost:4173) after starting the server.
 
-På VPS-en serveres de samme filene av `trening-api.service`; Tailscale Serve
-blir da den eneste inngangen fra telefonen.
+In production, `trening-api.service` serves these files and the FastAPI API on
+the same private Tailscale URL. The browser never receives an API or model key.

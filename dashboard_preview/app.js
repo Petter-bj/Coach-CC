@@ -3,6 +3,7 @@ const navButtons = document.querySelectorAll("[data-view]");
 const chatForm = document.querySelector("#chat-form");
 const chatMessage = document.querySelector("#chat-message");
 const chatButton = chatForm.querySelector("button");
+const syncNowButton = document.querySelector("[data-sync-now]");
 const coachReply = document.querySelector("#coach-reply");
 const coachAnswer = document.querySelector("[data-coach-answer]");
 const coachConversation = document.querySelector("[data-coach-conversation]");
@@ -22,6 +23,12 @@ const saturday = document.querySelector('[data-day="lørdag"]');
 const todayPage = document.querySelector('[data-page="today"]');
 const weekPage = document.querySelector('[data-page="week"]');
 const blockPage = document.querySelector('[data-page="block"]');
+const generalCoachPage = document.querySelector('[data-page="coach"]');
+const generalCoachForm = document.querySelector("#general-coach-form");
+const generalCoachMessage = document.querySelector("#general-coach-message");
+const generalCoachButton = generalCoachForm?.querySelector("button");
+const generalCoachConversation = document.querySelector("[data-general-coach-conversation]");
+const generalCoachEmpty = document.querySelector("[data-general-coach-empty]");
 const weekCalendar = document.querySelector("[data-week-calendar]");
 const dayLogCard = document.querySelector("[data-day-log]");
 const weekChatForm = document.querySelector("#week-chat-form");
@@ -58,11 +65,13 @@ let currentBlockProposal;
 const coachHistory = [];
 const weekCoachHistory = [];
 const blockCoachHistory = [];
+const generalCoachHistory = [];
 let blockConversationExpanded = false;
 let coachConversationExpanded = false;
 let weekConversationExpanded = false;
 let loadedTodayConversationDay;
 let loadedWeekConversationStart;
+let syncPollTimer;
 
 const number = new Intl.NumberFormat("nb-NO", { maximumFractionDigits: 1 });
 const weekdays = ["MAN", "TIR", "ONS", "TOR", "FRE", "LØR", "SØN"];
@@ -90,6 +99,61 @@ function clearChatField(field) {
 
 function setChatFieldBusy(field, busy) {
   if (field) field.disabled = busy;
+}
+
+function isSyncRequest(message) {
+  return /\b(synk(?:roniser)?|sync)\b/i.test(message)
+    && /\b(nå|data|økt|hevy|garmin|oppdater)\b/i.test(message);
+}
+
+async function requestManualSync() {
+  if (syncNowButton) {
+    syncNowButton.disabled = true;
+    syncNowButton.textContent = "Starter synk …";
+  }
+  try {
+    const response = await fetch("/api/sync", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("sync unavailable");
+    const payload = await response.json();
+    showToast(payload.message || "Synkronisering er startet.");
+    window.clearTimeout(syncPollTimer);
+    syncPollTimer = window.setTimeout(pollManualSync, 750);
+  } catch {
+    showToast("Kunne ikke starte synkronisering. Prøv igjen om litt.");
+    if (syncNowButton) {
+      syncNowButton.disabled = false;
+      syncNowButton.textContent = "↻ Synk data nå";
+    }
+  }
+}
+
+async function pollManualSync() {
+  try {
+    const response = await fetch("/api/sync/status", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("sync status unavailable");
+    const payload = await response.json();
+    if (payload.status === "running" || payload.status === "started") {
+      syncPollTimer = window.setTimeout(pollManualSync, 1100);
+      return;
+    }
+    if (payload.status === "finished") {
+      await loadToday();
+      if (!weekPage?.hidden) await loadWeek(displayedWeekStart);
+      showToast("Synkronisering ferdig. Dashboardet er oppdatert.");
+    } else if (payload.status === "failed") {
+      showToast("Synkroniseringen stoppet med en feil. Prøv igjen om litt.");
+    }
+  } catch {
+    showToast("Kunne ikke følge synkroniseringen. Oppdater siden om litt.");
+  } finally {
+    if (syncNowButton) {
+      syncNowButton.disabled = false;
+      syncNowButton.textContent = "↻ Synk data nå";
+    }
+  }
 }
 
 document.querySelectorAll("textarea[data-auto-expand]").forEach(resizeChatField);
@@ -284,17 +348,27 @@ function formatWeekRange(start, end) {
   return `${formatter.format(first)} – ${formatter.format(last)}`;
 }
 
-function formatSync(timestamp) {
-  if (!timestamp) return "Garmin er ikke synkronisert ennå";
+function formatSyncTime(timestamp) {
+  if (!timestamp) return null;
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "Oppdatert fra Garmin";
-  const time = new Intl.DateTimeFormat("nb-NO", {
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("nb-NO", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone: "Europe/Oslo",
   }).format(date);
-  return `Oppdatert fra Garmin ${time}`;
+}
+
+function formatSync(sources = {}) {
+  const labels = { garmin: "Garmin", hevy: "Hevy" };
+  const details = Object.entries(labels)
+    .map(([source, label]) => {
+      const time = formatSyncTime(sources[source]?.last_synced_at);
+      return time ? `${label} ${time}` : null;
+    })
+    .filter(Boolean);
+  return details.length ? `Oppdatert: ${details.join(" · ")}` : "Ingen kilder er synkronisert ennå";
 }
 
 function sessionTitle(session) {
@@ -1105,6 +1179,46 @@ function renderWeekConversation(messages = []) {
   });
 }
 
+function renderGeneralCoachConversation(messages = []) {
+  if (!generalCoachConversation) return;
+  const visibleMessages = messages.filter((message) => (
+    message?.role === "user" || message?.role === "assistant"
+  ) && typeof message.content === "string" && message.content.trim());
+  generalCoachHistory.splice(
+    0,
+    generalCoachHistory.length,
+    ...visibleMessages.map(({ role, content }) => ({ role, content })),
+  );
+  generalCoachConversation.replaceChildren();
+  if (!visibleMessages.length) {
+    generalCoachConversation.hidden = true;
+    if (generalCoachEmpty) generalCoachEmpty.hidden = false;
+    return;
+  }
+
+  visibleMessages.forEach((message) => {
+    const bubble = document.createElement("article");
+    bubble.className = `general-chat-message ${message.role}`;
+    const label = document.createElement("p");
+    label.className = "eyebrow";
+    label.textContent = message.role === "user" ? "DU" : "COACH";
+    const copy = document.createElement("p");
+    copy.textContent = message.content;
+    bubble.append(label, copy);
+    if (message.role === "assistant" && message.model) {
+      const model = document.createElement("small");
+      model.textContent = message.model;
+      bubble.append(model);
+    }
+    generalCoachConversation.append(bubble);
+  });
+  generalCoachConversation.hidden = false;
+  if (generalCoachEmpty) generalCoachEmpty.hidden = true;
+  requestAnimationFrame(() => {
+    generalCoachConversation.scrollTop = generalCoachConversation.scrollHeight;
+  });
+}
+
 function blockPayloadFromProposal(candidate) {
   return {
     block: {
@@ -1207,8 +1321,13 @@ function renderWeekPage(week) {
     const state = document.createElement("i");
     state.textContent = calendarDayIcon(day.status);
     item.append(date, title, state);
+    const workouts = day.workouts || [];
     const planned = day.planned_sessions || [];
-    if (planned.length === 1) {
+    if (workouts.length === 1) {
+      item.title = "Åpne registrert økt";
+      item.setAttribute("aria-label", `${date.textContent}: ${title.textContent}. Åpne registrert økt.`);
+      item.addEventListener("click", () => openActualWorkoutDetail(workouts[0].id));
+    } else if (planned.length === 1) {
       item.title = "Åpne øktplan";
       item.setAttribute("aria-label", `${date.textContent}: ${title.textContent}. Åpne øktplan.`);
       item.addEventListener("click", () => plannedWorkoutDetail(planned[0]));
@@ -1441,31 +1560,62 @@ async function loadBlockConversation() {
   }
 }
 
+async function loadGeneralCoachConversation() {
+  if (window.location.protocol === "file:") {
+    if (generalCoachHistory.length) renderGeneralCoachConversation(generalCoachHistory);
+    return;
+  }
+  try {
+    const response = await fetch("/api/coach/general/history", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("general coach conversation unavailable");
+    const payload = await response.json();
+    renderGeneralCoachConversation(payload.messages || []);
+  } catch {
+    // Behold en allerede synlig lokal samtale dersom nettverket er nede.
+  }
+}
+
 function showPage(view, weekStart) {
   const isToday = view === "I dag";
   const isWeek = view === "Uke";
   const isBlock = view === "Blokk";
+  const isCoach = view === "Coach";
   todayPage.hidden = !isToday;
   weekPage.hidden = !isWeek;
   blockPage.hidden = !isBlock;
+  if (generalCoachPage) generalCoachPage.hidden = !isCoach;
   if (isWeek) loadWeek(weekStart || displayedWeekStart);
   if (isBlock) loadBlock();
+  if (isCoach) loadGeneralCoachConversation();
   window.scrollTo(0, 0);
 }
 
 function hydrateDashboard(payload) {
   currentToday = payload;
   const metrics = payload.metrics || {};
-  const session = (payload.planned_sessions || []).find((item) => item.type !== "rest");
+  const sessions = payload.planned_sessions || [];
+  const plannedSession = sessions.find((item) => item.type !== "rest" && item.status !== "completed");
+  const completedSession = sessions.find((item) => item.type !== "rest" && item.status === "completed");
+  const session = plannedSession || completedSession;
+  const completedWorkout = completedSession?.workout_id
+    ? (payload.recent_workouts || []).find((workout) => String(workout.id) === String(completedSession.workout_id))
+    : null;
   const readiness = metrics.readiness || {};
   const sleep = metrics.sleep || {};
   const hrv = metrics.hrv || {};
   const restingHr = metrics.resting_hr || {};
 
-  setText("[data-recommendation-title]", recommendationTitle(payload.recommendation?.kind, session));
+  setText(
+    "[data-recommendation-title]",
+    !plannedSession && completedSession
+      ? "Dagens økt er gjennomført — bra jobbet."
+      : recommendationTitle(payload.recommendation?.kind, plannedSession),
+  );
   setText(
     "[data-recommendation-rationale]",
-    payload.recommendation?.rationale?.join(" ") || "Ingen detaljert anbefaling er tilgjengelig ennå.",
+    !plannedSession && completedSession
+      ? "Økta er registrert. Se detaljer eller bruk coachen hvis noe bør noteres før neste økt."
+      : payload.recommendation?.rationale?.join(" ") || "Ingen detaljert anbefaling er tilgjengelig ennå.",
   );
   setText(
     '[data-signal="readiness"]',
@@ -1492,24 +1642,39 @@ function hydrateDashboard(payload) {
   );
 
   if (session) {
-    setText("[data-workout-date]", `DAGENS ØKT · ${formatDate(payload.date)}`);
+    const isCompleted = session.status === "completed";
+    setText(
+      "[data-workout-date]",
+      isCompleted ? `DAGENS ØKT · GJENNOMFØRT ${formatDate(payload.date)}` : `DAGENS ØKT · ${formatDate(payload.date)}`,
+    );
     setText("[data-workout-title]", sessionTitle(session));
-    setText("[data-workout-description]", session.description || "Ingen detaljer registrert.");
-    const duration = session.target_metrics?.duration_min;
+    setText(
+      "[data-workout-description]",
+      isCompleted
+        ? `Registrert via ${completedWorkout?.source === "hevy" ? "Hevy" : completedWorkout?.source || "kilden"}.`
+        : session.description || "Ingen detaljer registrert.",
+    );
+    const duration = isCompleted ? completedWorkout?.duration_sec / 60 : session.target_metrics?.duration_min;
     setText("[data-workout-duration]", duration ? `${number.format(duration)} min` : "—");
-    setText("[data-workout-intensity]", sessionIntensity(session));
+    setText("[data-workout-intensity]", isCompleted ? "Gjennomført" : sessionIntensity(session));
     const target = document.querySelector("[data-workout-target]");
+    const detailsButton = document.querySelector('[data-workout-detail="planned"]');
     const isStrength = /strength|upper|lower/i.test(session.type || "")
       || /styrke|fullkropp|overkropp|underkropp/i.test(session.description || "");
     if (target) {
-      target.textContent = isStrength ? "Hevy-mal via ukecoach" : "Garmin-push ikke koblet";
-      target.classList.toggle("pending-target", true);
+      target.textContent = isCompleted
+        ? `Registrert i ${completedWorkout?.source === "hevy" ? "Hevy" : completedWorkout?.source || "kilden"}`
+        : isStrength ? "Hevy-mal via ukecoach" : "Garmin-push ikke koblet";
+      target.classList.toggle("pending-target", !isCompleted);
+    }
+    if (detailsButton) {
+      detailsButton.textContent = isCompleted ? "Vis registrert økt" : "Vis detaljer";
     }
   } else {
     document.querySelector("[data-workout-card]")?.setAttribute("hidden", "");
   }
 
-  setText("[data-sync-status]", formatSync(payload.sources?.garmin?.last_synced_at));
+  setText("[data-sync-status]", formatSync(payload.sources));
   setMetricValue("[data-metric-readiness]", readiness.value == null ? null : number.format(readiness.value), "/100");
   setText(
     "[data-metric-readiness-foot]",
@@ -1935,7 +2100,7 @@ function previewWeekCoachReply(question) {
 navButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const destination = button.dataset.view;
-    if (destination === "I dag" || destination === "Uke" || destination === "Blokk") {
+    if (destination === "I dag" || destination === "Uke" || destination === "Blokk" || destination === "Coach") {
       if (button.matches(".nav-item, .mobile-nav-item")) setActiveView(button);
       showPage(destination);
       return;
@@ -1992,7 +2157,13 @@ document.querySelector("[data-day-log-close]")?.addEventListener("click", () => 
 });
 
 document.querySelector('[data-workout-detail="planned"]')?.addEventListener("click", () => {
-  const session = (currentToday?.planned_sessions || []).find((item) => item.type !== "rest") || {
+  const sessions = currentToday?.planned_sessions || [];
+  const completed = sessions.find((item) => item.type !== "rest" && item.status === "completed");
+  if (completed?.workout_id) {
+    openActualWorkoutDetail(completed.workout_id);
+    return;
+  }
+  const session = sessions.find((item) => item.type !== "rest") || {
     date: "2026-07-19",
     type: "threshold_run",
     description: "6 × 3 min @ terskel · 2 min rolig mellom dragene",
@@ -2014,11 +2185,71 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !workoutDetailModal?.hidden) closeWorkoutDetail();
 });
 
+function previewGeneralCoachReply(question) {
+  const planning = /\b(uke|plan|blokk|flytt|endre|bytte|opprette|lag)\b/i.test(question);
+  return {
+    answer: planning
+      ? "Det gir mening å se dette i sammenheng før vi endrer noe. La oss avklare målet og rammene først; når retningen er tydelig, kan du åpne Uke eller Blokk for et konkret forslag som må godkjennes."
+      : "Jeg har dette som den løpende samtalen vår. Fortell gjerne litt mer om hva du merker eller vurderer, så ser vi det opp mot treningen, målene og den totale belastningen.",
+    model: "Preview",
+  };
+}
+
+generalCoachForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const question = generalCoachMessage?.value.trim();
+  if (!question) {
+    generalCoachMessage?.focus();
+    return;
+  }
+  if (generalCoachButton) {
+    generalCoachButton.disabled = true;
+    generalCoachButton.textContent = "Tenker …";
+  }
+  setChatFieldBusy(generalCoachMessage, true);
+  try {
+    const response = await fetch("/api/coach/general", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ message: question, history: generalCoachHistory.slice(-8) }),
+    });
+    if (!response.ok) throw new Error("general coach unavailable");
+    const payload = await response.json();
+    if (!payload.answer) throw new Error("general coach answer missing");
+    renderGeneralCoachConversation(payload.messages || [
+      ...generalCoachHistory,
+      { role: "user", content: question },
+      { role: "assistant", content: payload.answer, model: payload.model },
+    ]);
+    clearChatField(generalCoachMessage);
+  } catch {
+    const preview = previewGeneralCoachReply(question);
+    renderGeneralCoachConversation([
+      ...generalCoachHistory,
+      { role: "user", content: question },
+      { role: "assistant", content: preview.answer, model: preview.model },
+    ]);
+    clearChatField(generalCoachMessage);
+  } finally {
+    if (generalCoachButton) {
+      generalCoachButton.disabled = false;
+      generalCoachButton.textContent = "Send";
+    }
+    setChatFieldBusy(generalCoachMessage, false);
+  }
+});
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = chatMessage.value.trim();
   if (!question) {
     chatMessage.focus();
+    return;
+  }
+
+  if (isSyncRequest(question)) {
+    clearChatField(chatMessage);
+    await requestManualSync();
     return;
   }
 
@@ -2064,6 +2295,8 @@ chatForm.addEventListener("submit", async (event) => {
     setChatFieldBusy(chatMessage, false);
   }
 });
+
+syncNowButton?.addEventListener("click", requestManualSync);
 
 document.querySelector("[data-injury-proposal-apply]")?.addEventListener("click", async () => {
   if (!currentInjuryProposal) return;

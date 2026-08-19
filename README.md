@@ -1,351 +1,193 @@
-# Trening
+# Coach-CC
 
-> **Disclaimer:** Personal hobby project built for my own Mac. Published
-> as reference — not a product. Uses unofficial scrapers (Garmin Connect)
-> and reverse-engineered endpoints (Yazio) that can break at any time
-> without warning. Use at your own risk. No support provided.
+Coach-CC is a private, self-hosted training-data and coaching system. It
+collects training, health, and nutrition data in one SQLite database, then
+uses deterministic analysis and a private AI coach to support training
+planning, review, and day-to-day decisions.
 
-A personal health and training data system. Automatically pulls from
-Garmin Connect, Withings, Concept2 Logbook, Yazio, and (optionally) Hevy
-into a single local SQLite database on a Mac, then exposes narrow CLI
-commands that Claude Code (via the Telegram channel plugin) can call for
-morning briefings and ad-hoc questions.
+It is built for one person, not as a hosted product. The production deployment
+runs continuously on a Linux VPS and is accessible only through a private
+Tailscale network.
 
-[Hevy](https://hevyapp.com) integration has two layers: scheduled sync
-(strength workouts flow into the local DB for baselines, PRs, volume
-reports, and training-load calculations) and a bidirectional MCP server
-(so Claude can read and write Hevy workouts and routines directly from
-Telegram chat).
+> **Personal project disclaimer:** Garmin Connect is accessed through an
+> unofficial client and Yazio uses reverse-engineered endpoints. Either
+> integration may break without warning. This repository is shared as a
+> reference implementation; it comes with no support or service guarantees.
 
-Code comments and commit history are in Norwegian (written during
-development); the system itself works regardless.
+## What it does
+
+- Syncs data from Garmin Connect, Withings, Concept2 Logbook, Yazio, and Hevy.
+- Stores normalized workouts, FIT samples, sleep, HRV, readiness, weight,
+  nutrition, and strength sessions in SQLite.
+- Calculates personal baselines, recovery signals, training load, progression,
+  and workout-plan reconciliation.
+- Provides CLI tools for reports and analysis, plus a private FastAPI dashboard
+  optimized for desktop and phone.
+- Uses DeepSeek V4-Pro for conversational coaching with curated context rather
+  than database, filesystem, or shell access.
+- Keeps plan, injury, review, and Hevy-routine changes behind explicit proposal
+  and confirmation flows.
+- Runs hourly data syncs, nightly SQLite backups, and off-server backup pulls
+  to a Mac over Tailscale.
 
 ## Architecture
 
+```text
+Garmin · Withings · Concept2 · Yazio · Hevy
+                     │
+                     ▼
+          src.sync (hourly systemd timer)
+                     │
+                     ▼
+      SQLite + FIT files (/var/lib/trening)
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+ deterministic analysis    FastAPI + dashboard
+ baselines · recovery       private coach · plans · reviews
+ reconciliation             127.0.0.1:8080
+          │                     │
+          └──────────┬──────────┘
+                     ▼
+            Tailscale Serve
+                     │
+          Mac / iPhone (private tailnet)
+
+Nightly SQLite backup → VPS backup directory → pulled to Mac every 24 hours
 ```
-launchd (hourly sync + nightly backup + auto-restart bot)
-   ↓
-python -m src.sync
-   ├── Garmin    (HRV, sleep, readiness, activities + FIT samples)
-   ├── Withings  (weight + body composition)
-   ├── Concept2  (SkiErg sessions + FIT stroke samples)
-   ├── Yazio     (kcal + macros per meal)
-   └── Hevy      (optional — strength workouts + sets + e1RM)
-   ↓
-SQLite: ~/Library/Application Support/Trening/health.db
-   ↓
-src/cli/*  (status, sleep_summary, report morning/weekly, strength log, ...)
-   ↓                       ↑
-   ↓        Hevy MCP ──────┘  (optional, bidirectional: read + write
-   ↓                           strength workouts and routines)
-   ↓
-Claude Code session with Telegram channel plugin → user
+
+The dashboard API only listens on `127.0.0.1`. Tailscale Serve is the external
+entry point, so the service is not exposed on the public VPS interface.
+
+## Safety and privacy model
+
+The coaching model is deliberately narrow:
+
+- DeepSeek receives a curated summary for the active surface, not raw database
+  tables, FIT samples, GPS positions, credentials, or shell access.
+- The model cannot execute commands or write directly to the database.
+- Health-status, plan, block, review, and Hevy-routine changes are stored as
+  visible proposals and require a separate user confirmation.
+- Credentials stay outside the repository, in owner-only files on the VPS.
+
+## Repository layout
+
+```text
+src/
+  sources/        Garmin, Withings, Concept2, Yazio, and Hevy sync adapters
+  analysis/       baselines, recovery, exercises, and training-load analysis
+  coaching/       deterministic philosophy, knowledge maps, and coach clients
+  api/            FastAPI dashboard, planning, reviews, and proposal flows
+  cli/            terminal reports and data-inspection commands
+  integrations/   narrow write integrations, currently Hevy routines
+systemd/           VPS services and timers
+launchd/           macOS helpers, including the off-server backup pull agent
+dashboard_preview/ static dashboard client used by the FastAPI service
+knowledge/         curated coaching knowledge sent selectively to the model
+tests/             unit, integration, API, migration, and backup tests
 ```
 
-All runtime state lives under `~/Library/` (not `~/Documents/`) to avoid
-macOS TCC (Transparency, Consent & Control) friction with launchd.
+## Local development
 
-## First-time setup
+### Prerequisites
 
-### 1. Prerequisites
-
-- macOS with Python 3.12+ (`brew install python@3.14`)
-- [`uv`](https://github.com/astral-sh/uv) (`brew install uv`)
-- `tmux` (`brew install tmux`) — for the auto-start bot
-- Accounts at: Garmin Connect, Withings, Concept2, Yazio
-- Telegram account (for bot) and a Claude Pro or Max subscription
-  (Pro works for light daily use; Max gives more headroom if you chat
-  a lot with the bot)
-- Optional: Hevy account with Pro subscription (for the MCP
-  integration in step 7) and Node.js v24+
-
-### 2. Install and dependencies
+- Python 3.12+
+- [`uv`](https://github.com/astral-sh/uv)
+- Accounts for the data providers you want to enable
 
 ```bash
-git clone <repo-url>
-cd Trening
+git clone https://github.com/Petter-bj/Coach-CC.git
+cd Coach-CC
 uv sync
-
-# Create your local CLAUDE.md from the template (gitignored — customize freely)
-cp CLAUDE.example.md CLAUDE.md
+uv run pytest
 ```
 
-### 3. Credentials
+The source adapters load credentials from the runtime credentials directory:
 
-Create `~/Library/Application Support/Trening/credentials/.env`:
-
-```bash
-GARMIN_EMAIL=...
-GARMIN_PASSWORD=...
-
-WITHINGS_CLIENT_ID=...
-WITHINGS_CLIENT_SECRET=...
-WITHINGS_REDIRECT_URI=http://localhost:8080/callback
-
-CONCEPT2_ACCESS_TOKEN=...      # from log.concept2.com > Edit Profile > Applications
-
-YAZIO_EMAIL=...
-YAZIO_PASSWORD=...             # SIWA-only users must set a password first (Forgot Password flow)
-YAZIO_CLIENT_ID=...            # reverse-engineered — see note below
-YAZIO_CLIENT_SECRET=...
-
-TELEGRAM_BOT_TOKEN=...         # from @BotFather
-TELEGRAM_ALLOWED_CHAT_IDS=...
-
-HEVY_API_KEY=...               # optional — see step 7
+```text
+~/Library/Application Support/Trening/credentials/.env  # macOS default
+/var/lib/trening/credentials/.env                       # VPS deployment
 ```
 
-Developer app registration:
-- Withings: [developer.withings.com](https://developer.withings.com) →
-  Create application → Public API Integration → callback `http://localhost:8080/callback`
+The exact variables depend on the sources in use. Typical examples are
+`GARMIN_EMAIL`, `GARMIN_PASSWORD`, `WITHINGS_CLIENT_ID`,
+`CONCEPT2_ACCESS_TOKEN`, `YAZIO_EMAIL`, `YAZIO_PASSWORD`, and
+`HEVY_API_KEY`. Never commit personal credentials.
 
-**Yazio note:** Yazio does not offer a public developer API. `CLIENT_ID` /
-`CLIENT_SECRET` are shared constants reverse-engineered from the Yazio
-mobile app binary. The same values are used by community clients like
-[`dimensi/yazio`](https://github.com/dimensi/yazio) and
-[`juriadams/yazio`](https://github.com/juriadams/yazio) — check
-`src/utils/constants.ts` in those repos. This technically violates Yazio's
-ToS, though nobody has been sued for it to date. Use at your own risk.
-
-### 4. Run auth spikes (once each)
-
-```bash
-uv run python spikes/garmin_login.py      # MFA prompt in terminal
-uv run python spikes/withings_oauth.py    # opens browser
-uv run python spikes/concept2_oauth.py    # token-based, direct
-uv run python spikes/yazio_login.py       # password grant
-```
-
-Each spike stores tokens in `~/Library/Application Support/Trening/credentials/`.
-
-### 5. First sync + migrations
+Run a manual sync locally:
 
 ```bash
 uv run python -m src.sync
 ```
 
-### 6. Install launchd jobs
+Start the dashboard locally after configuring a database and credentials:
 
 ```bash
-uv run python -m launchd.install install
+uv run python -m src.api
 ```
 
-Jobs installed:
-- `com.trening.sync` — runs at boot + every hour
-- `com.trening.backup` — runs daily at 03:00
-- `com.trening.bot` — auto-starts Claude Code + Telegram channel in tmux
+It listens on `http://127.0.0.1:8080` and serves both the dashboard and
+`/api/*` from the same origin.
 
-Verify:
-```bash
-uv run python -m launchd.install status
-```
+### Static dashboard preview
 
-### 7. Optional: Hevy integration (sync + bidirectional MCP)
-
-If you use [Hevy](https://hevyapp.com) to log strength training, wire
-it up two ways. Both use the same API key. Requires Hevy Pro (monthly,
-yearly, or lifetime).
-
-1. Generate an API key: [hevy.com](https://hevy.com) → Settings →
-   Developer / API (Pro-only)
-
-2. **Scheduled sync** — add `HEVY_API_KEY=...` to your
-   `~/Library/Application Support/Trening/credentials/.env`. The hourly
-   launchd sync will pull new/edited Hevy workouts into the local DB as
-   canonical `workouts` + `strength_sessions` + `strength_sets` rows,
-   so baselines, PRs, volume reports, and the Acute:Chronic Workload
-   Ratio all reflect your strength training. Backfills the last 180
-   days on first run.
-
-3. **Bidirectional MCP** — adds the Hevy MCP server to Claude Code
-   (user scope, so it works in every session):
-
-   ```bash
-   claude mcp add hevy -s user -e HEVY_API_KEY=sk_live_your_key -- npx -y hevy-mcp
-   ```
-
-   This uses [chrisdoc/hevy-mcp](https://github.com/chrisdoc/hevy-mcp),
-   which exposes 20 tools (get/create/update workouts, routines,
-   folders, exercise templates, webhooks). Requires Node.js v24+
-   (`brew install node`).
-
-4. Restart the bot session to pick up the new MCP server:
-
-   ```bash
-   pkill -9 tmux && rm -rf /tmp/trening-socket
-   uv run python -m launchd.install kickstart bot
-   ```
-
-What the MCP unlocks in Telegram:
-- Log a new session via chat instead of screenshots
-- Tweak tomorrow's routine ("add 2.5 kg to bench", "swap RDL for hip thrust")
-- Generate a full 6-week training block and push it to Hevy as routines
-
-Reads can come from either the local DB (scheduled sync, analytics-ready)
-or the MCP (ground-truth from Hevy). CLIs like `last_strength_sessions`,
-`volume`, and `prs` use the local DB; Claude prefers the MCP for
-anything "latest" or when pushing edits back.
-
-### 8. Optional: Import historical strength log
+For visual work without personal data, the dashboard can run as a static demo:
 
 ```bash
-uv run python spikes/import_strength_xlsx.py path/to/log.xlsx
+python3 -m http.server 4173 --directory dashboard_preview
 ```
 
-### 9. Claude Code + Telegram channel
+Open `http://localhost:4173`. The static preview uses representative data and
+does not persist coach messages or call external providers.
+
+## VPS deployment
+
+The primary deployment target is a small Linux VPS. `systemd/` contains units
+for the hourly sync, nightly backup, private API, and optional weekly planning
+job.
 
 ```bash
-# Start a BotFather bot on Telegram first (@BotFather → /newbot)
-# and send a message to your bot to activate the chat.
-
-claude  # starts Claude Code in the repo root
-# Inside Claude Code:
-/plugin install telegram@claude-plugins-official
-/telegram:configure $TELEGRAM_BOT_TOKEN
-/telegram:access pair <code sent from Telegram>
-/telegram:access policy allowlist
+cd /opt/trening/app
+uv sync --frozen
+sudo install -m 0644 systemd/trening-*.service systemd/trening-*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now trening-sync.timer trening-backup.timer trening-api.service
 ```
 
-The `com.trening.bot` launchd job automatically starts Claude Code inside
-a detached tmux session at login and re-checks every minute. If the bot
-crashes or you restart your Mac, it comes back up within ~60 seconds.
+See [`systemd/README.md`](systemd/README.md) for runtime paths, credential
+permissions, API verification, and the Tailscale setup.
 
-## Linux VPS deployment (data layer)
+The database backup uses SQLite's online backup API and runs an integrity check
+before keeping the copy. Daily backups are retained for 14 days and weekly
+backups for eight weeks. A macOS launch agent pulls completed VPS backups to
+the Mac at login and then every 24 hours when the Mac is available.
 
-The repository also includes a first Linux deployment path under
-[`systemd/`](systemd/). It replaces the deterministic macOS jobs with
-systemd units for hourly sync, nightly SQLite backup, and the optional weekly
-plan proposal. The Claude Code/tmux monitor is intentionally not moved: it is
-specific to the old bot architecture and will be replaced by the future
-dashboard/coach health checks.
+## Hevy routines
 
-### Mac as off-server backup target
+With a `HEVY_API_KEY`, Coach-CC can import strength history and create a Hevy
+routine after the user explicitly approves a generated proposal. The model
+never receives the API key and cannot call Hevy directly; the narrow
+integration layer validates the routine and resolves exercise-template IDs.
 
-After the VPS data layer is live, a separate macOS launch agent can pull the
-finished SQLite backups over Tailscale whenever the Mac is on. It does not
-restart the old Mac sync or bot jobs.
-
-First add the VPS service group as a read-only backup group member and make
-the backup directory group-readable (never the credentials directory):
+## Testing
 
 ```bash
-sudo usermod -aG trening petter
-sudo install -d -o trening -g trening -m 0750 /var/lib/trening/backups
-sudo find /var/lib/trening/backups -maxdepth 1 -type f -name '*.db' -exec chmod 640 {} \;
+uv run pytest
 ```
 
-Then store the existing SSH key in the macOS Keychain and install the pull
-agent:
+The test suite currently contains 374 tests covering migrations, parsers, FIT
+replay, source behavior, reconciliation, baselines, recovery rules, coach
+proposal validation, API flows, backup installation, and CLI contracts.
 
-```bash
-ssh-add --apple-use-keychain ~/.ssh/trening_vps
-cd ~/Documents/Prosjekter/Trening
-uv run python -m launchd.install_vps_backup install --host <VPS_TAILSCALE_IP>
-```
+## Notes
 
-The agent runs at login and then every 24 hours. It stores copies in
-`~/Library/Application Support/Trening/offsite-vps-backups/`.
-
-Runtime paths are configurable without changing code:
-
-| Variable | Purpose | Linux service value |
-| --- | --- | --- |
-| `TRENING_DATA_DIR` | DB, credentials, FIT files, and backups | `/var/lib/trening` |
-| `TRENING_LOG_DIR` | Application logs | `/var/log/trening` |
-| `TRENING_CACHE_DIR` | Disposable caches | `/var/cache/trening` |
-
-When unset, macOS keeps its existing `~/Library/.../Trening` locations. See
-[`systemd/README.md`](systemd/README.md) for provisioning, verification, and
-the safe migration order. Do not disable the Mac jobs or run two persistent
-syncs against copied OAuth credentials until the first VPS sync and backup
-have been verified.
-
-## Daily usage
-
-### Via Telegram
-Message your bot:
-- `morning report` → Claude runs `src.cli.report morning`
-- `sleep last week` → `src.cli.sleep_summary --range last_7d`
-- Screenshot of a strength session → Claude parses + logs via `strength log`
-- *(with Hevy MCP)* `log push workout: bench 80kg 4x8, incline db press 30kg 3x10`
-  → Claude pushes it directly into Hevy via the API
-- *(with Hevy MCP)* `add 2.5 kg to bench in my Push routine` → Claude updates
-  the Hevy routine so next session reflects the new target
-
-### Via terminal
-```bash
-uv run python -m src.cli.status
-uv run python -m src.cli.report morning
-uv run python -m src.cli.report weekly
-uv run python -m src.cli.last_workouts --limit 10
-uv run python -m src.cli.baselines show
-uv run python -m src.cli.wellness log --sleep 8 --soreness 3 --motivation 8 --energy 7
-```
-
-## Directories
-
-| Path | Contents |
-|---|---|
-| Source code (this repo) | `~/Documents/Prosjekter/Trening/` |
-| DB + credentials + state | `~/Library/Application Support/Trening/` |
-| FIT files + backups | `~/Library/Application Support/Trening/fit_files/` + `backups/` |
-| Logs | `~/Library/Logs/Trening/` |
-| Screenshot cache | `~/Library/Caches/Trening/` |
-
-On Linux, these can be redirected with `TRENING_DATA_DIR`,
-`TRENING_LOG_DIR`, and `TRENING_CACHE_DIR`; the supplied systemd units use
-`/var/lib/trening`, `/var/log/trening`, and `/var/cache/trening`.
-
-## Restore from backup
-
-```bash
-# Stop launchd jobs
-uv run python -m launchd.install uninstall
-
-# Find a known-good backup
-ls -la ~/Library/Application\ Support/Trening/backups/
-
-# Replace the DB
-cp ~/Library/Application\ Support/Trening/backups/daily-YYYY-MM-DD.db \
-   ~/Library/Application\ Support/Trening/health.db
-
-# Verify integrity
-sqlite3 ~/Library/Application\ Support/Trening/health.db 'PRAGMA integrity_check;'
-
-# Re-install launchd
-uv run python -m launchd.install install
-```
-
-## Dependency policy
-
-No auto-upgrades of `garminconnect`, `fitdecode`, etc. Versions are pinned
-in `uv.lock`. When bumping manually: run `pytest` and at least one manual
-sync before letting launchd take over again.
-
-## Privacy
-
-Telegram messages flow through Anthropic (Claude). The system is designed
-so Claude receives aggregated outputs from the CLIs rather than raw table
-dumps. Reports and analysis are built locally (Python); Claude just
-phrases them in natural language around pre-computed numbers.
-
-Screenshots are stored locally under `~/Library/Caches/Trening/` and
-cleaned up automatically after 30 days.
-
-If you enable the Hevy MCP, Hevy workout data (exercises, sets, reps,
-weights) also flows through Claude when relevant to a conversation.
-The MCP uses your personal Hevy API key and stays on your machine — no
-additional third-party service.
-
-## Tests
-
-```bash
-uv run pytest tests/
-```
-
-130+ tests covering schema migrations, parser functions, FIT replay,
-dedupe logic, baselines, recovery rules, and CLI contracts.
+- Norwegian is used in code comments, user-facing coaching text, and commit
+  history because this is a Norwegian personal project.
+- `launchd/` also contains older Mac/Telegram helpers. The current primary
+  product path is the private VPS dashboard and API.
+- Dependency versions are locked in `uv.lock`. Run tests and a manual sync
+  before upgrading provider libraries.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE)

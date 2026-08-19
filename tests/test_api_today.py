@@ -18,6 +18,14 @@ from src.db.connection import configure
 from src.db.migrations import migrate
 
 
+class _FakeSyncProcess:
+    def __init__(self) -> None:
+        self.result: int | None = None
+
+    def poll(self) -> int | None:
+        return self.result
+
+
 def _seed(conn: sqlite3.Connection, target_date: date) -> None:
     day = target_date.isoformat()
     saturday = (target_date - timedelta(days=1)).isoformat()
@@ -66,6 +74,12 @@ def _seed(conn: sqlite3.Connection, target_date: date) -> None:
     )
     conn.execute(
         """
+        INSERT INTO source_stream_state (source, stream, last_successful_sync_at)
+        VALUES ('hevy', 'workouts', '2026-07-19T06:18:00Z')
+        """
+    )
+    conn.execute(
+        """
         INSERT INTO planned_sessions (planned_date, type, description, status,
                                       target_metrics)
         VALUES (?, 'threshold_run', '6 × 3 min @ terskel', 'planned',
@@ -106,12 +120,43 @@ def _connection() -> sqlite3.Connection:
     return conn
 
 
+def test_dashboard_can_start_a_manual_sync_without_shell_access(tmp_path) -> None:
+    """Den private UI-en får bare den smale, låsbeskyttede sync-handlingen."""
+    started: list[str] = []
+    process = _FakeSyncProcess()
+
+    async def request() -> tuple[httpx.Response, httpx.Response, httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=tmp_path / "health.db",
+                api_token="test-token",
+                sync_launcher=lambda: (started.append("sync"), process)[1],
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            denied = await client.post("/api/sync")
+            allowed = await client.post("/api/sync", headers={"Authorization": "Bearer test-token"})
+            while_running = await client.get("/api/sync/status", headers={"Authorization": "Bearer test-token"})
+            process.result = 0
+            finished = await client.get("/api/sync/status", headers={"Authorization": "Bearer test-token"})
+        return denied, allowed, while_running, finished
+
+    denied, allowed, while_running, finished = asyncio.run(request())
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == "started"
+    assert while_running.json() == {"status": "running"}
+    assert finished.json() == {"status": "finished", "return_code": 0}
+    assert started == ["sync"]
+
+
 def test_build_today_payload_separates_sources_and_baselines() -> None:
     conn = _connection()
     target = date(2026, 7, 19)
     try:
         _seed(conn, target)
-        assert ensure_pending_reviews(conn) == 1
+        assert ensure_pending_reviews(conn, since_days_ago=365) == 1
         payload = build_today_payload(conn, target)
     finally:
         conn.close()
@@ -119,6 +164,10 @@ def test_build_today_payload_separates_sources_and_baselines() -> None:
     assert payload["date"] == "2026-07-19"
     assert payload["sources"]["garmin"] == {
         "last_synced_at": "2026-07-19T06:20:00Z",
+        "source": "automatic",
+    }
+    assert payload["sources"]["hevy"] == {
+        "last_synced_at": "2026-07-19T06:18:00Z",
         "source": "automatic",
     }
     assert payload["recommendation"]["source"] == "coach_rules"
@@ -149,7 +198,7 @@ def test_week_overview_and_day_log_keep_sources_separate() -> None:
     target = date(2026, 7, 19)
     try:
         _seed(conn, target)
-        assert ensure_pending_reviews(conn) == 1
+        assert ensure_pending_reviews(conn, since_days_ago=365) == 1
         conn.execute(
             """
             INSERT INTO withings_weight (grpid, measured_at_utc, timezone, local_date,
@@ -274,7 +323,7 @@ def test_confirm_review_persists_optional_note_and_removes_pending_card(tmp_path
     configure(conn)
     migrate(conn)
     _seed(conn, date(2026, 7, 19))
-    assert ensure_pending_reviews(conn) == 1
+    assert ensure_pending_reviews(conn, since_days_ago=365) == 1
     review_id = conn.execute("SELECT id FROM session_reviews").fetchone()["id"]
     conn.commit()
     conn.close()
@@ -328,7 +377,7 @@ def test_review_note_reconsiders_same_card_before_it_can_be_confirmed(tmp_path) 
     configure(conn)
     migrate(conn)
     _seed(conn, date(2026, 7, 19))
-    assert ensure_pending_reviews(conn) == 1
+    assert ensure_pending_reviews(conn, since_days_ago=365) == 1
     review_id = conn.execute("SELECT id FROM session_reviews").fetchone()["id"]
     conn.commit()
     conn.close()
@@ -481,3 +530,55 @@ def test_coach_chat_is_private_read_only_and_receives_curated_context(tmp_path) 
     assert "start_latitude" not in encoded_context
     assert "start_longitude" not in encoded_context
     assert "sensitive" not in encoded_context
+
+
+def test_general_coach_keeps_a_separate_persistent_conversation(tmp_path) -> None:
+    """Den frie coach-samtalen har bred kontekst, men skriver ikke planen."""
+    db_path = tmp_path / "trening.db"
+    target = date.today()
+    conn = sqlite3.connect(db_path)
+    configure(conn)
+    migrate(conn)
+    _seed(conn, target)
+    conn.commit()
+    conn.close()
+
+    seen: dict = {}
+
+    def responder(question: str, context: dict) -> CoachReply:
+        seen["question"] = question
+        seen["context"] = context
+        return CoachReply(answer="Vi tar det steg for steg.", model="deepseek-v4-pro")
+
+    async def chat() -> tuple[httpx.Response, httpx.Response]:
+        transport = httpx.ASGITransport(
+            app=create_app(
+                db_path=db_path,
+                api_token="test-token",
+                coach_responder=responder,
+            )
+        )
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            sent = await client.post(
+                "/api/coach/general",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "Hvordan bør jeg tenke om høsten?"},
+            )
+            history = await client.get(
+                "/api/coach/general/history",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        return sent, history
+
+    sent, history = asyncio.run(chat())
+
+    assert sent.status_code == 200
+    assert sent.json()["changes_applied"] is False
+    assert history.json()["messages"] == [
+        {"role": "user", "content": "Hvordan bør jeg tenke om høsten?"},
+        {"role": "assistant", "content": "Vi tar det steg for steg.", "model": "deepseek-v4-pro"},
+    ]
+    assert seen["context"]["coach_surface"] == "general"
+    assert seen["context"]["current_week"]["start"]
+    assert seen["context"]["current_block"]["name"]
+    assert "kan ikke endre plan" in seen["context"]["change_contract"]
